@@ -411,6 +411,18 @@ if mode == "production":
                 except _json.JSONDecodeError as e:
                     st.error(f"JSONエラー: {e}")
 
+    # ---- ディープリサーチモード（Geminiの拡張機能） ----
+    st.checkbox(
+        "🔍 ディープリサーチモード（Gemini）",
+        value=False,
+        key="deep_research_mode",
+        help=(
+            "ON にすると Gemini が Google検索でリアルタイム情報を取得しながら生成し、"
+            "thinking budget も最大化します（応答時間が30〜120秒に延びます）。"
+            "①発散・②収束で精度UPに有効。"
+        ),
+    )
+
     with st.expander("API設定（このセッションのみ保持・サーバー保存なし）"):
         st.caption("各キーはあなたのブラウザセッションにのみ保持され、サーバーには記録されません。タブを閉じると消えます。")
 
