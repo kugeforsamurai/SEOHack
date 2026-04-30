@@ -33,15 +33,51 @@ EMPTY_STAGES = {
 
 def _user_root() -> Path:
     """セッションごと（ユーザーごと）に隔離されたルートパス。
-    クラウドで複数ユーザーが同時アクセスしてもデータが混ざらないようにする。
+    優先順位:
+      1. st.session_state['_app_session_id']
+      2. URLクエリパラメータ ?sid=...（リロードでも保持される）
+      3. output/sessions/ 配下に既存ディレクトリがあれば最新を採用（リロード後の自動復旧）
+      4. 新規UUIDを発行 + URLにsidを書き込み（次回以降復旧できるように）
     Streamlitコンテキスト外（CLIテスト等）では OUTPUT_ROOT そのまま。"""
     try:
         import streamlit as st
+
         sid = st.session_state.get("_app_session_id", "")
+
+        # 2. URLクエリパラメータから復元
+        if not sid:
+            try:
+                qp_sid = st.query_params.get("sid", "")
+                if qp_sid:
+                    sid = str(qp_sid)
+                    st.session_state["_app_session_id"] = sid
+            except Exception:
+                pass
+
+        # 3. 既存ディレクトリから自動復旧（最新更新分を選択）
+        if not sid:
+            sessions_root = OUTPUT_ROOT / "sessions"
+            if sessions_root.exists():
+                existing = [d for d in sessions_root.iterdir() if d.is_dir()]
+                if existing:
+                    most_recent = max(existing, key=lambda p: p.stat().st_mtime)
+                    sid = most_recent.name
+                    st.session_state["_app_session_id"] = sid
+                    try:
+                        st.query_params["sid"] = sid
+                    except Exception:
+                        pass
+
+        # 4. 新規発行 + URLに保存
         if not sid:
             import uuid
             sid = uuid.uuid4().hex[:12]
             st.session_state["_app_session_id"] = sid
+            try:
+                st.query_params["sid"] = sid
+            except Exception:
+                pass
+
         p = OUTPUT_ROOT / "sessions" / sid
         p.mkdir(parents=True, exist_ok=True)
         return p
