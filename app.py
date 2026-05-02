@@ -986,7 +986,7 @@ elif current_stage == "review":
 
                     # ---- diagram_type 別の編集UI ----
                     if diagram_type == "checklist":
-                        st.caption("📋 Pillowで描画（日本語OK、項目数自由）")
+                        st.caption(f"🎨 OpenAI {os.environ.get('OPENAI_IMAGE_MODEL', 'gpt-image-2')} で生成（編集デザイン仕様を内部プロンプトに埋込み）")
                         cl = img.get("checklist", {"title": "", "items": []})
                         cl_title = st.text_input(
                             "チェックリスト タイトル",
@@ -1005,20 +1005,32 @@ elif current_stage == "review":
                             "サイズ", size_options, index=size_options.index(cur_size),
                             key=f"img_size_{i}",
                         )
+                        quality = st.selectbox(
+                            "品質", ["low", "medium", "high"], index=2,
+                            key=f"img_qual_{i}",
+                        )
                         st.caption(f"項目数: {len(cl_items)}")
 
                         col_btn, col_dl = st.columns([1, 1])
                         with col_btn:
-                            btn_label = "🔁 再描画" if exists else "📋 Pillowで描画"
-                            if st.button(btn_label, key=f"img_gen_{i}", type="primary" if not exists else "secondary", width="stretch"):
-                                try:
-                                    diagram_renderer.render_checklist(
-                                        title=cl_title, items=cl_items, output_path=img_path, size=size,
-                                    )
-                                    st.success("描画完了")
-                                    st.rerun()
-                                except Exception as e:
-                                    st.error(f"エラー: {e}")
+                            btn_label = "🔁 再生成" if exists else "🎨 OpenAIで生成"
+                            if st.button(
+                                btn_label, key=f"img_gen_{i}",
+                                type="primary" if not exists else "secondary",
+                                disabled=not openai_client.keys_configured() or not cl_items,
+                                width="stretch",
+                            ):
+                                with st.spinner("OpenAI で画像生成中...（30〜60秒）"):
+                                    try:
+                                        prompt_en = prompts.image_prompt_for_checklist(cl_title, cl_items)
+                                        openai_client.generate_image(
+                                            prompt=prompt_en, save_path=img_path,
+                                            size=size, quality=quality,
+                                        )
+                                        st.success("生成完了")
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"エラー: {e}")
                         with col_dl:
                             if exists:
                                 with open(img_path, "rb") as f:
@@ -1033,7 +1045,7 @@ elif current_stage == "review":
                         })
 
                     elif diagram_type == "comparison_table":
-                        st.caption("📊 Pillowで描画（日本語OK、行数自由）")
+                        st.caption(f"🎨 OpenAI {os.environ.get('OPENAI_IMAGE_MODEL', 'gpt-image-2')} で生成（編集デザイン仕様を内部プロンプトに埋込み）")
                         tb = img.get("table", {"title": "", "cols": [], "rows": []})
                         tb_title = st.text_input(
                             "比較表 タイトル",
@@ -1049,7 +1061,6 @@ elif current_stage == "review":
                         )
                         cols = [c.strip() for c in cols_text.split(",") if c.strip()]
 
-                        # rows を DataFrame に変換
                         if cols:
                             data = []
                             for r in tb.get("rows", []):
@@ -1063,7 +1074,6 @@ elif current_stage == "review":
                                 df_rows, num_rows="dynamic", width="stretch",
                                 key=f"tb_rows_{i}", height=300,
                             )
-                            # DataFrame → list[dict] へ戻す
                             new_rows = []
                             for _, row in edited_rows_df.iterrows():
                                 label = str(row.get(cols[0], ""))
@@ -1079,24 +1089,31 @@ elif current_stage == "review":
                             index=size_options.index(cur_size if cur_size in size_options else "1536x1024"),
                             key=f"img_size_{i}",
                         )
+                        quality = st.selectbox(
+                            "品質", ["low", "medium", "high"], index=2,
+                            key=f"img_qual_{i}",
+                        )
 
                         col_btn, col_dl = st.columns([1, 1])
                         with col_btn:
-                            btn_label = "🔁 再描画" if exists else "📊 Pillowで描画"
+                            btn_label = "🔁 再生成" if exists else "🎨 OpenAIで生成"
                             if st.button(
                                 btn_label, key=f"img_gen_{i}",
                                 type="primary" if not exists else "secondary",
-                                disabled=not cols, width="stretch",
+                                disabled=not openai_client.keys_configured() or not cols or not new_rows,
+                                width="stretch",
                             ):
-                                try:
-                                    diagram_renderer.render_comparison_table(
-                                        title=tb_title, cols=cols, rows=new_rows,
-                                        output_path=img_path, size=size,
-                                    )
-                                    st.success("描画完了")
-                                    st.rerun()
-                                except Exception as e:
-                                    st.error(f"エラー: {e}")
+                                with st.spinner("OpenAI で画像生成中...（30〜60秒）"):
+                                    try:
+                                        prompt_en = prompts.image_prompt_for_table(tb_title, cols, new_rows)
+                                        openai_client.generate_image(
+                                            prompt=prompt_en, save_path=img_path,
+                                            size=size, quality=quality,
+                                        )
+                                        st.success("生成完了")
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"エラー: {e}")
                         with col_dl:
                             if exists:
                                 with open(img_path, "rb") as f:

@@ -290,6 +290,106 @@ Markdownのみ出力。前置き・後書き・コードフェンス（```）で
 """
 
 
+def image_prompt_for_checklist(title: str, items: list[str]) -> str:
+    """チェックリスト画像のOpenAI gpt-image用プロンプト生成。
+    エディトリアル / 編集デザイン仕様を英語で埋め込む。日本語テキストはそのまま保持指示。"""
+    items_block = "\n".join(f"  {i + 1:02d}. {item}" for i, item in enumerate(items))
+    return f"""\
+Create a clean editorial-style infographic checklist, magazine layout aesthetic.
+
+DESIGN SPECIFICATIONS (must follow strictly):
+- Background: warm off-white #fdfcfa (paper-like nuance)
+- Title color: deep ink black #181818
+- Accent color: deep indigo #2a3f5f (used sparingly for accents)
+- Subtitle/eyebrow color: deep indigo
+- Hairline separator color: light warm gray #e8e6e0
+- Typography: Japanese sans-serif (Hiragino Sans / Noto Sans JP equivalent), restrained weight
+- Aspect ratio: portrait, 1024x1536 pixels
+
+LAYOUT (top to bottom):
+1. Small eyebrow label at top: "チェックリスト" in deep indigo (sans-serif Japanese, small size)
+2. Main title (large, bold, ink black): "{title}"
+3. Thin 1-pixel horizontal rule in ink black just below the title
+4. Vertical list of items below, with generous whitespace
+
+EACH ITEM display:
+- A short vertical accent bar (3px wide, deep indigo) on the left edge of the item block
+- Small mid-gray item number label (01, 02, ...) on the upper right
+- Item text in ink-black sans-serif Japanese typography
+- Generous vertical spacing between items
+- Thin 1-pixel horizontal hairline in light warm gray between consecutive items (not after the last)
+
+ITEMS — use these EXACT Japanese texts, do not modify, translate, or paraphrase. Render in this exact order:
+{items_block}
+
+CRITICAL REQUIREMENTS:
+- Preserve EXACT Japanese characters and word order (no replacement, paraphrasing, omission, or summarization)
+- All {len(items)} items must be displayed in full (do not skip any)
+- No illustrations, no icons, no decorations, no photos, no people, no logos, no flowers/leaves/etc
+- Editorial / magazine-quality flat design
+- Clean, restrained, professional
+- White space is important — do not crowd
+"""
+
+
+def image_prompt_for_table(title: str, cols: list[str], rows: list[dict]) -> str:
+    """比較表画像のOpenAI gpt-image用プロンプト生成。"""
+    header_str = " | ".join(cols)
+    rows_str = "\n".join(
+        f"  {row.get('label', '')} | {' | '.join(str(v) for v in row.get('values', []))}"
+        for row in rows
+    )
+    return f"""\
+Create a clean editorial-style comparison table, magazine layout aesthetic.
+
+DESIGN SPECIFICATIONS (must follow strictly):
+- Background: warm off-white #fdfcfa (paper-like nuance)
+- Body text color: deep ink black #181818
+- Header row background: deep ink black #181818
+- Header text color: white
+- Label column (first column) text color: deep indigo #2a3f5f
+- Other columns text color: deep ink black
+- Alternating row background: warm beige #f3f1ec (for every other row, very subtle)
+- Hairline separator color: light warm gray #e8e6e0
+- Title accent rule color: deep indigo #2a3f5f
+- Typography: Japanese sans-serif (Hiragino Sans / Noto Sans JP), restrained weight
+- Aspect ratio: landscape, 1536x1024 pixels
+
+LAYOUT (top to bottom):
+1. Small eyebrow label at top-left: "比較表" in deep indigo (sans-serif Japanese, small)
+2. Main title (large, bold, ink black): "{title}"
+3. Thin 1-pixel horizontal rule in deep indigo below title
+4. Comparison table below
+
+TABLE STRUCTURE:
+- {len(cols)} columns total
+- Header row: dark ink-black background with white sans-serif Japanese text
+- Below header: thick 2-pixel ink-black bottom border
+- {len(rows)} data rows
+- Alternating row backgrounds (row 1: white, row 2: warm beige, row 3: white, ...)
+- First column (label) text in deep indigo, bold
+- Other columns text in ink black
+- Generous cell padding
+- Between data rows: thin 1-pixel hairline in light warm gray
+- Bottom of table: thin 1-pixel ink-black rule
+- No outer border around the whole table
+
+DATA — use these EXACT Japanese texts, do not modify, translate, or paraphrase. Render in this exact order:
+Header: {header_str}
+Data rows:
+{rows_str}
+
+CRITICAL REQUIREMENTS:
+- Preserve EXACT Japanese characters and word order in every cell
+- All {len(rows)} data rows must be visible (do not skip any)
+- All {len(cols)} columns must be present
+- Cell alignment: text left-aligned, vertically centered
+- No illustrations, no icons, no decorations, no photos, no people, no logos
+- Editorial / magazine-quality flat design
+- Clean, restrained, professional
+"""
+
+
 def review_and_images_prompt(topic: str, outline_md: str, angle_md: str) -> str:
     return f"""\
 {HOOKHACK_STRATEGY}

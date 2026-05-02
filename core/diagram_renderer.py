@@ -8,6 +8,13 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
 JP_FONT_CANDIDATES = [
+    # Linux (Streamlit Cloud) — fonts-noto-cjk パッケージ
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/opentype/noto/NotoSansCJK.ttc",
+    "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/truetype/noto/NotoSansCJK.ttc",
+    "/usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc",
+    # macOS（ローカル開発）
     "/System/Library/Fonts/Hiragino Sans GB.ttc",
     "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
     "/System/Library/Fonts/AppleSDGothicNeo.ttc",

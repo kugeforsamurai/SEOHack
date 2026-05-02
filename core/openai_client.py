@@ -26,7 +26,7 @@ def _api_key() -> str:
 
 
 def _model() -> str:
-    return os.environ.get("OPENAI_IMAGE_MODEL", "gpt-image-1")
+    return os.environ.get("OPENAI_IMAGE_MODEL", "gpt-image-2")
 
 
 def _text_model() -> str:
@@ -70,10 +70,13 @@ def generate_image(
     save_path: Path,
     size: str = "1024x1024",
     quality: str = "medium",
+    _model_override: str | None = None,
 ) -> Path:
-    """画像を生成して save_path に PNG 保存。返り値は保存パス。"""
+    """画像を生成して save_path に PNG 保存。返り値は保存パス。
+    gpt-image-2 が verify 未完了で 403 になった場合、自動で gpt-image-1 にフォールバック。"""
+    chosen_model = _model_override or _model()
     payload = {
-        "model": _model(),
+        "model": chosen_model,
         "prompt": prompt,
         "size": size,
         "quality": quality,
@@ -85,6 +88,20 @@ def generate_image(
     }
     with httpx.Client(timeout=TIMEOUT) as client:
         r = client.post(API_URL, headers=headers, json=payload)
+
+    # 自動フォールバック: gpt-image-2 verify 未完了 → gpt-image-1 で再試行
+    if (
+        r.status_code == 403
+        and chosen_model.startswith("gpt-image-2")
+        and ("verified" in r.text or "verify" in r.text.lower())
+        and _model_override is None  # 無限ループ防止
+    ):
+        return generate_image(
+            prompt=prompt, save_path=save_path,
+            size=size, quality=quality,
+            _model_override="gpt-image-1",
+        )
+
     if r.status_code >= 400:
         raise RuntimeError(f"OpenAI {r.status_code}: {r.text[:600]}")
     data = r.json()
