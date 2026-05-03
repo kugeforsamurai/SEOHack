@@ -1528,14 +1528,125 @@ elif current_stage == "publish":
     posts = storage.load_posts(work_date)
     blog_md = storage.load_blog(work_date)
 
-    st.subheader("ブログ（STUDIOへ手動コピー）")
-    if blog_md:
-        st.caption(f"{len(blog_md)} 字")
-        with st.expander("プレビュー"):
-            st.markdown(blog_md)
-        st.code(blog_md, language="markdown")
-    else:
+    st.subheader("ブログ（STUDIO 連携）")
+    if not blog_md:
         st.info("ブログがありません")
+    else:
+        st.caption(f"{len(blog_md)} 字")
+
+        # ---- STUDIO 連携: 半自動投稿 ----
+        from core import studio_export
+        import streamlit.components.v1 as components
+        import json as _json
+        import base64 as _b64
+
+        try:
+            payload = studio_export.build_studio_payload(blog_md)
+        except Exception as e:
+            st.error(f"STUDIO payload 生成エラー: {e}")
+            payload = {"title": "", "body_html": ""}
+
+        st.markdown("**📥 STUDIO へ半自動投稿**")
+        st.caption(
+            "ブックマークレットで STUDIO の編集画面にタイトル+本文を自動入力します。"
+            "見出しは H2→H3、H3→H4 に自動変換（STUDIO の大見出し/小見出し階層に合わせる）。"
+        )
+        st.markdown(f"- タイトル: `{payload['title'][:60]}...`")
+        st.markdown(f"- 本文 HTML: {len(payload['body_html'])} 文字")
+
+        # クリップボードコピーボタン（タイトル+本文）
+        payload_str = _json.dumps(payload, ensure_ascii=False)
+        js_payload = _json.dumps(payload_str)  # JS 文字列リテラル化
+        components.html(
+            f"""
+            <button id="cp-payload" onclick="
+                navigator.clipboard.writeText({js_payload}).then(() => {{
+                    this.innerText = '✅ コピー完了 — STUDIO の編集画面でブックマークレットを実行';
+                    this.style.background = '#16a34a';
+                    setTimeout(() => {{
+                        this.innerText = '📋 STUDIO 投稿データ（タイトル+本文）をコピー';
+                        this.style.background = '#2563eb';
+                    }}, 3500);
+                }}).catch(e => {{ this.innerText = '❌ ' + e.message; }});
+            " style="
+                background: #2563eb; color: white; padding: 12px 20px;
+                border: none; border-radius: 8px; cursor: pointer;
+                width: 100%; font-size: 14px; font-weight: 600;
+            ">📋 STUDIO 投稿データ（タイトル+本文）をコピー</button>
+            """,
+            height=70,
+        )
+
+        # 画像コピー（各画像をクリップボードに貼付け可能な形でコピー）
+        images_root = storage.images_dir(work_date)
+        image_files = sorted(images_root.glob("*.png")) if images_root.exists() else []
+        if image_files:
+            st.markdown(f"**画像（{len(image_files)}枚）** — STUDIO 本文で挿入位置をクリック → 下のボタン → STUDIO で `Cmd+V`")
+            for img_path in image_files:
+                try:
+                    img_b64 = _b64.b64encode(img_path.read_bytes()).decode("ascii")
+                except Exception:
+                    continue
+                with st.container(border=True):
+                    col_thumb, col_btn = st.columns([1, 2])
+                    with col_thumb:
+                        st.image(str(img_path), width=140)
+                    with col_btn:
+                        st.caption(img_path.name)
+                        components.html(
+                            f"""
+                            <button onclick="
+                                (async () => {{
+                                    try {{
+                                        const r = await fetch('data:image/png;base64,{img_b64}');
+                                        const blob = await r.blob();
+                                        await navigator.clipboard.write([new ClipboardItem({{'image/png': blob}})]);
+                                        this.innerText = '✅ コピー完了 — STUDIO で Cmd+V';
+                                        this.style.background = '#16a34a';
+                                        setTimeout(() => {{
+                                            this.innerText = '📋 この画像をクリップボードへ';
+                                            this.style.background = '#2563eb';
+                                        }}, 3000);
+                                    }} catch (e) {{
+                                        this.innerText = '❌ ' + e.message;
+                                    }}
+                                }})();
+                            " style="
+                                background: #2563eb; color: white; padding: 8px 14px;
+                                border: none; border-radius: 6px; cursor: pointer;
+                                width: 100%; font-size: 13px;
+                            ">📋 この画像をクリップボードへ</button>
+                            """,
+                            height=50,
+                        )
+        else:
+            st.caption("画像なし（④画像&レビューで生成すれば表示されます）")
+
+        # ブックマークレット
+        with st.expander("🔖 ブックマークレットの登録方法（初回のみ・5分）"):
+            st.markdown("""
+            ### 手順
+            1. Chrome のブックマークバーを表示（`Cmd + Shift + B`）
+            2. ブックマークバーで**右クリック** → **「ページを追加」**
+            3. **名前**: `📥 STUDIOに取り込む`
+            4. **URL**: 下のコードを**全部コピーして貼付け**（先頭の `javascript:` ごと）
+            5. **保存**
+
+            ### 使い方
+            1. メディアなんとかで「📋 STUDIO 投稿データをコピー」を押す
+            2. STUDIO の編集画面（新規記事 or 既存記事）を開く
+            3. ブックマーク `📥 STUDIOに取り込む` をクリック
+            4. 自動でタイトル+本文が入る
+            5. 画像を入れたい位置でクリック → メディアなんとかで「画像をコピー」 → STUDIO で `Cmd+V`
+            6. 確認 → STUDIO の「公開」ボタン
+            """)
+            st.code(studio_export.make_bookmarklet(), language="javascript")
+            st.caption("⚠️ 上のコードは1行 javascript: スキームです。改行されていないものをそのままコピーしてください。")
+
+        st.divider()
+        with st.expander("ブログ Markdown プレビュー"):
+            st.markdown(blog_md)
+            st.code(blog_md, language="markdown")
 
     st.divider()
     st.subheader("Xに5本独立投稿")
