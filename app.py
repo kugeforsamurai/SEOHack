@@ -10,11 +10,56 @@ import pandas as pd
 import streamlit as st
 from dotenv import load_dotenv
 
-from core import storage, prompts, gemini_client, x_client, openai_client, outline_parser, diagram_renderer, persona
+from core import storage, prompts, gemini_client, x_client, openai_client, outline_parser, diagram_renderer, persona, api_keys
 
 load_dotenv()
 
 st.set_page_config(page_title="メディアなんとか", page_icon=None, layout="wide")
+
+
+# ============================================================
+# パスワード認証ゲート
+# APP_PASSWORD が Secrets / env に設定されていれば、起動時に認証を要求。
+# 未設定ならゲート無効（ローカル開発用）。
+# ============================================================
+def _check_password() -> bool:
+    expected = api_keys.get_app_password()
+    if not expected:
+        return True  # APP_PASSWORD 未設定なら認証スキップ
+    if st.session_state.get("_authenticated"):
+        return True
+
+    # 未認証 → ログイン画面
+    st.title("メディアなんとか")
+    st.caption("HookHack コンテンツ生成パイプライン")
+    st.divider()
+    st.subheader("🔒 パスワードを入力してください")
+
+    pwd = st.text_input(
+        "パスワード",
+        type="password",
+        key="_login_pwd",
+        label_visibility="collapsed",
+        placeholder="パスワード",
+    )
+    col_btn, _ = st.columns([1, 3])
+    with col_btn:
+        if st.button("ログイン", type="primary", width="stretch"):
+            if pwd == expected:
+                st.session_state["_authenticated"] = True
+                if "_login_pwd" in st.session_state:
+                    del st.session_state["_login_pwd"]
+                st.rerun()
+            else:
+                st.error("パスワードが違います")
+                # 簡易ブルートフォース対策
+                import time
+                time.sleep(1)
+    return False
+
+
+if not _check_password():
+    st.stop()
 
 STAGES = [
     ("diverge", "①発散"),
@@ -58,6 +103,13 @@ def _clear_run_widget_state() -> None:
 # ---------- Sidebar ----------
 with st.sidebar:
     st.title("メディアなんとか")
+
+    # ---- ログアウト（パスワード認証が有効な時のみ表示）----
+    if api_keys.get_app_password():
+        if st.button("🚪 ログアウト", help="認証セッションを終了する"):
+            st.session_state["_authenticated"] = False
+            st.rerun()
+        st.divider()
 
     # ---- モード切替（⓪テーマ探索 と 制作 は完全分離） ----
     mode = st.radio(
