@@ -1546,7 +1546,7 @@ elif current_stage == "publish":
             st.error(f"STUDIO payload 生成エラー: {e}")
             payload = {"title": "", "body_html": ""}
 
-        st.markdown("**📥 STUDIO へ半自動投稿**")
+        st.markdown("### 📥 STUDIO へ半自動投稿")
         st.caption(
             "ブックマークレットで STUDIO の編集画面にタイトル+本文を自動入力します。"
             "見出しは H2→H3、H3→H4 に自動変換（STUDIO の大見出し/小見出し階層に合わせる）。"
@@ -1554,28 +1554,38 @@ elif current_stage == "publish":
         st.markdown(f"- タイトル: `{payload['title'][:60]}...`")
         st.markdown(f"- 本文 HTML: {len(payload['body_html'])} 文字")
 
-        # クリップボードコピーボタン（タイトル+本文）
+        # クリップボードコピー: 2つの方法を提供
         payload_str = _json.dumps(payload, ensure_ascii=False)
-        js_payload = _json.dumps(payload_str)  # JS 文字列リテラル化
+        js_payload = _json.dumps(payload_str)
+
+        # 方法1: HTMLボタン（埋込み iframe、たまに見えない問題あり）
+        st.markdown("#### 方法 1: ボタンクリックでコピー")
         components.html(
             f"""
+            <div style="padding:8px 0;">
             <button id="cp-payload" onclick="
                 navigator.clipboard.writeText({js_payload}).then(() => {{
-                    this.innerText = '✅ コピー完了 — STUDIO の編集画面でブックマークレットを実行';
+                    this.innerText = '✅ コピー完了 — STUDIO 編集画面でブックマークレット実行';
                     this.style.background = '#16a34a';
                     setTimeout(() => {{
-                        this.innerText = '📋 STUDIO 投稿データ（タイトル+本文）をコピー';
+                        this.innerText = '📋 STUDIO 投稿データをクリップボードにコピー';
                         this.style.background = '#2563eb';
                     }}, 3500);
                 }}).catch(e => {{ this.innerText = '❌ ' + e.message; }});
             " style="
-                background: #2563eb; color: white; padding: 12px 20px;
+                background: #2563eb; color: white; padding: 14px 24px;
                 border: none; border-radius: 8px; cursor: pointer;
-                width: 100%; font-size: 14px; font-weight: 600;
-            ">📋 STUDIO 投稿データ（タイトル+本文）をコピー</button>
+                width: 100%; font-size: 15px; font-weight: 700;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            ">📋 STUDIO 投稿データをクリップボードにコピー</button>
+            </div>
             """,
-            height=70,
+            height=80,
         )
+
+        # 方法2: コードブロック（右上の📋アイコンで確実にコピー可能）
+        st.markdown("#### 方法 2: 上のボタンが押せない時 — コードブロック右上の 📋 でコピー")
+        st.code(payload_str, language="json")
 
         # 画像コピー（各画像をクリップボードに貼付け可能な形でコピー）
         images_root = storage.images_dir(work_date)
