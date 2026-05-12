@@ -948,6 +948,17 @@ elif current_stage == "outline":
         with st.expander("角度（参考）"):
             st.markdown(angle)
 
+        # ---- ①事例リファレンス（編集中に常時参照できる） ----
+        cases_df = storage.load_cases(work_date)
+        if not cases_df.empty:
+            with st.expander(f"📚 ①発散の事例リファレンス × {len(cases_df)}（コピペ用）", expanded=False):
+                st.caption("各H2の「内容メモ」に貼るために、ここから事例を探してコピーしてください。")
+                ref_cols = [c for c in ["誰が", "何を", "結果_数字", "示唆", "国_地域"] if c in cases_df.columns]
+                if ref_cols:
+                    st.dataframe(cases_df[ref_cols], hide_index=False, width="stretch")
+                else:
+                    st.dataframe(cases_df, hide_index=False, width="stretch")
+
         outline_md = storage.load_outline(work_date)
 
         # ---- 生成ボタン ----
@@ -957,8 +968,11 @@ elif current_stage == "outline":
             if st.button(btn_label, type="primary" if not outline_md else "secondary", width="stretch"):
                 with st.spinner("Geminiが章立てを組んでいます..."):
                     try:
+                        cases_csv_for_outline = (
+                            cases_df.to_csv(index=False) if not cases_df.empty else ""
+                        )
                         outline_md = gemini_client.generate_text(
-                            prompts.outline_prompt(topic, angle)
+                            prompts.outline_prompt(topic, angle, cases_csv_for_outline)
                         )
                         outline_md = persona.sanitize_emoji(outline_md)
                         storage.save_outline(work_date, outline_md)
@@ -1011,6 +1025,34 @@ elif current_stage == "outline":
             st.subheader(f"H2 セクション × {len(sections)}")
             st.caption("各セクションごとに「タイトル / 推定字数 / 内容メモ」を編集できます。⑤執筆ではここのメモを元に本文が書かれます。")
 
+            # 並び替え対象（通常H2のみ。self_practice / summary / cta は固定位置）
+            FIXED_IDS = {"self_practice", "summary", "cta"}
+
+            def _move_section(from_idx: int, to_idx: int) -> None:
+                """sections を並び替えて保存し、out_sec_* state をクリアして rerun。"""
+                current_struct = {
+                    "title_candidates": [t for t in edited_titles if t.strip()],
+                    "lead_direction": edited_lead,
+                    "sections": [
+                        {
+                            "id": s.get("id", ""),
+                            "title": st.session_state.get(f"out_sec_title_{i}", s.get("title", "")),
+                            "target_chars": int(st.session_state.get(f"out_sec_target_{i}", s.get("target_chars", 500))),
+                            "memo": st.session_state.get(f"out_sec_memo_{i}", s.get("memo", "")),
+                        }
+                        for i, s in enumerate(sections)
+                    ],
+                }
+                secs = current_struct["sections"]
+                if 0 <= to_idx < len(secs):
+                    secs[from_idx], secs[to_idx] = secs[to_idx], secs[from_idx]
+                new_md = outline_parser.serialize_full(current_struct)
+                storage.save_outline(work_date, new_md)
+                for k in list(st.session_state.keys()):
+                    if k.startswith("out_sec_"):
+                        del st.session_state[k]
+                st.rerun()
+
             edited_sections: list[dict] = []
             for idx, sec in enumerate(sections):
                 # ID から種別を判定してアイコン的なラベル
@@ -1024,8 +1066,10 @@ elif current_stage == "outline":
                 else:
                     role = f"H2_{idx + 1}"
 
+                is_movable = sid not in FIXED_IDS
+
                 with st.container(border=True):
-                    head_l, head_r, head_d = st.columns([4, 1, 1])
+                    head_l, head_r, head_up, head_down, head_d = st.columns([4, 1, 0.5, 0.5, 1])
                     with head_l:
                         sec_title = st.text_input(
                             f"{role} タイトル",
@@ -1040,7 +1084,26 @@ elif current_stage == "outline":
                             value=int(sec.get("target_chars") or 500),
                             key=f"out_sec_target_{idx}",
                         )
+                    with head_up:
+                        st.write("")  # 縦位置調整
+                        up_clicked = st.button(
+                            "⬆️",
+                            key=f"out_sec_up_{idx}",
+                            help="このセクションを1つ上へ",
+                            disabled=not is_movable or idx == 0,
+                            width="stretch",
+                        )
+                    with head_down:
+                        st.write("")
+                        down_clicked = st.button(
+                            "⬇️",
+                            key=f"out_sec_down_{idx}",
+                            help="このセクションを1つ下へ",
+                            disabled=not is_movable or idx >= len(sections) - 1,
+                            width="stretch",
+                        )
                     with head_d:
+                        st.write("")
                         delete_clicked = st.button(
                             "🗑️ 削除",
                             key=f"out_sec_del_{idx}",
@@ -1051,9 +1114,14 @@ elif current_stage == "outline":
                     sec_memo = st.text_area(
                         "内容メモ（書く要点・使う事例・実装ステップなど。1行=1ポイント）",
                         value=sec.get("memo", ""),
-                        height=140,
+                        height=280,
                         key=f"out_sec_memo_{idx}",
                     )
+
+                    if up_clicked:
+                        _move_section(idx, idx - 1)
+                    if down_clicked:
+                        _move_section(idx, idx + 1)
 
                     if delete_clicked:
                         # 現在の編集状態を保ったまま、idx だけ抜く
