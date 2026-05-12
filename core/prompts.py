@@ -570,7 +570,7 @@ outline の中で「ここが記事の核。読者に最も価値がある」と
       "placement": "after:h2_3",
       "purpose": "クリエイティブPDCAの5ステップを視覚化（80字以内、日本語）",
       "size": "1536x1024",
-      "prompt_en": "Clean flat horizontal process flow diagram, white background, 5 steps with arrows between them. Step labels in English: 'Plan', 'Create', 'Test', 'Analyze', 'Iterate'. Minimal design, sans-serif font. No illustrations, no decorative elements, no photos, no people."
+      "prompt_en": "クリエイティブ運用の5ステップを横並びのフラットなプロセスフロー図にする。背景は白、ステップ間は矢印で接続。各ステップのラベル（日本語）: 「計画」「制作」「テスト」「分析」「改善」。和文サンセリフ書体、ミニマルなフラットデザイン。イラスト・装飾・人物・写真は禁止。**画像内の全ての文字は日本語で描画する**。"
     }}
   ]
 }}
@@ -578,9 +578,35 @@ outline の中で「ここが記事の核。読者に最も価値がある」と
 各画像オブジェクトは diagram_type に応じて：
 - "checklist" の場合は **`checklist` フィールド必須**（`prompt_en` 不要）
 - "comparison_table" の場合は **`table` フィールド必須**（`prompt_en` 不要）
-- "process_flow" / "data_chart" の場合は **`prompt_en` フィールド必須**
+- "process_flow" / "data_chart" の場合は **`prompt_en` フィールド必須**（**日本語で記述**、画像内のラベル・テキストは必ず日本語にする）
 
 JSONのみ。前置き・コードフェンス禁止。
+"""
+
+
+def image_prompt_wrap_for_freeform(user_prompt: str) -> str:
+    """process_flow / data_chart 用：ユーザー記述プロンプト（日本語OK）を、
+    デザイン仕様 + 日本語テキスト保持の指示で包む。OpenAI gpt-image に投げる最終形。"""
+    return f"""\
+{user_prompt}
+
+DESIGN SPECIFICATIONS (must follow strictly):
+- Background: warm off-white #fdfcfa (paper-like)
+- Body text color: deep ink black #181818
+- Accent color: deep indigo #2a3f5f (used sparingly)
+- Typography: Japanese sans-serif (Hiragino Sans / Noto Sans JP equivalent), restrained weight
+- Editorial / magazine-quality flat design
+- Clean, restrained, professional, generous whitespace
+
+ABSOLUTE PROHIBITIONS:
+- No illustrations, no icons, no decorations, no photos, no people, no logos, no flowers/leaves/etc
+- No 3D rendering, no gradients, no shadows beyond minimal
+
+CRITICAL LANGUAGE REQUIREMENT:
+- All visible text labels, headings, captions, and annotations in the image **MUST be rendered in Japanese (日本語) characters**
+- If the prompt above contains English terms, render them as their Japanese equivalents while preserving meaning
+- **Do NOT include any English text in the final image** (numbers and units like "%", "x" are acceptable as universal symbols)
+- Preserve EXACT Japanese characters as written above (no paraphrasing, no translation, no omission)
 """
 
 

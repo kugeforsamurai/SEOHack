@@ -1236,14 +1236,82 @@ elif current_stage == "review":
 
         # 重点セクション
         key_sections = review.get("key_sections", [])
-        if key_sections:
-            st.divider()
-            st.subheader("重点セクション（執筆時の核）")
-            for ks in key_sections:
-                with st.container(border=True):
-                    st.markdown(f"**{ks.get('section_title', '?')}** `{ks.get('section_id', '?')}`")
-                    st.markdown(f"**なぜ重要**: {ks.get('why_important', '')}")
-                    st.markdown(f"**執筆時の注意**: {ks.get('writing_advice', '')}")
+        st.divider()
+        st.subheader(f"重点セクション（執筆時の核） × {len(key_sections)}")
+        st.caption("どこを「記事の核」として強調するかを編集できます。⑤執筆では ⭐ マーク付きで表示され、執筆時の注意が反映されます。")
+
+        edited_key_sections: list[dict] = []
+        delete_ks_idx = None
+        for i, ks in enumerate(key_sections):
+            with st.container(border=True):
+                head_l, head_d = st.columns([5, 1])
+                with head_l:
+                    ks_id = st.text_input(
+                        "セクションID（h2_1 / self_practice / summary / cta など）",
+                        value=ks.get("section_id", ""),
+                        key=f"ks_id_{i}",
+                    )
+                with head_d:
+                    st.write("")
+                    if st.button(
+                        "🗑️ 削除", key=f"ks_del_{i}",
+                        help="この重点セクションを削除", width="stretch",
+                    ):
+                        delete_ks_idx = i
+
+                ks_title = st.text_input(
+                    "セクションタイトル",
+                    value=ks.get("section_title", ""),
+                    key=f"ks_title_{i}",
+                )
+                ks_why = st.text_area(
+                    "なぜ重要（80字程度）",
+                    value=ks.get("why_important", ""),
+                    height=80,
+                    key=f"ks_why_{i}",
+                )
+                ks_advice = st.text_area(
+                    "執筆時の注意・強調すべき要素（120字程度）",
+                    value=ks.get("writing_advice", ""),
+                    height=120,
+                    key=f"ks_advice_{i}",
+                )
+                edited_key_sections.append({
+                    "section_id": ks_id,
+                    "section_title": ks_title,
+                    "why_important": ks_why,
+                    "writing_advice": ks_advice,
+                })
+
+        col_ks_add, col_ks_save = st.columns(2)
+        with col_ks_add:
+            if st.button("➕ 重点セクションを追加", width="stretch"):
+                review["key_sections"] = edited_key_sections + [{
+                    "section_id": "",
+                    "section_title": "",
+                    "why_important": "",
+                    "writing_advice": "",
+                }]
+                storage.save_review(work_date, review)
+                for k in list(st.session_state.keys()):
+                    if k.startswith("ks_"):
+                        del st.session_state[k]
+                st.rerun()
+        with col_ks_save:
+            if st.button("💾 重点セクションを保存", type="primary", width="stretch"):
+                review["key_sections"] = edited_key_sections
+                storage.save_review(work_date, review)
+                st.success("重点セクションを保存しました")
+
+        if delete_ks_idx is not None:
+            review["key_sections"] = [
+                ks for j, ks in enumerate(edited_key_sections) if j != delete_ks_idx
+            ]
+            storage.save_review(work_date, review)
+            for k in list(st.session_state.keys()):
+                if k.startswith("ks_"):
+                    del st.session_state[k]
+            st.rerun()
 
         # 画像案
         images = review.get("images", [])
@@ -1413,14 +1481,15 @@ elif current_stage == "review":
 
                     else:
                         # process_flow / data_chart など → OpenAI 経由
-                        st.caption("🎨 OpenAI gpt-image-1 で生成")
+                        st.caption("🎨 OpenAI gpt-image-1 で生成（プロンプトは日本語OK、画像内の文字も自動で日本語化）")
                         col_p, col_c = st.columns([2, 1])
                         with col_p:
-                            prompt_en = st.text_area(
-                                "プロンプト (英語、編集可)",
+                            prompt_user = st.text_area(
+                                "プロンプト（日本語OK、編集可）",
                                 value=img.get("prompt_en", ""),
                                 height=140,
                                 key=f"img_prompt_{i}",
+                                help="図の構成・ラベル名・矢印関係などを日本語で記述。デザイン仕様と日本語化指示はシステム側で自動で付加されます。",
                             )
                         with col_c:
                             size = st.selectbox(
@@ -1443,8 +1512,9 @@ elif current_stage == "review":
                             ):
                                 with st.spinner("OpenAIで画像生成中...（10〜30秒）"):
                                     try:
+                                        wrapped_prompt = prompts.image_prompt_wrap_for_freeform(prompt_user)
                                         openai_client.generate_image(
-                                            prompt=prompt_en, save_path=img_path,
+                                            prompt=wrapped_prompt, save_path=img_path,
                                             size=size, quality=quality,
                                         )
                                         st.success("生成完了")
@@ -1459,7 +1529,7 @@ elif current_stage == "review":
                                         mime="image/png", key=f"img_dl_{i}", width="stretch",
                                     )
 
-                        updated.append({**img, "size": size, "prompt_en": prompt_en})
+                        updated.append({**img, "size": size, "prompt_en": prompt_user})
 
                     if exists:
                         st.image(str(img_path), width="stretch")
