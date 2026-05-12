@@ -334,8 +334,13 @@ if mode == "production":
             if button_action:
                 kind, ad, aid = button_action
                 if kind == "open":
-                    st.session_state["_current_work_date"] = ad
-                    storage.set_active_run(date.fromisoformat(ad), aid)
+                    try:
+                        storage.set_active_run(date.fromisoformat(ad), aid)
+                        st.session_state["_current_work_date"] = ad
+                        st.session_state["current_stage"] = "diverge"
+                        _clear_run_widget_state()
+                    except Exception as e:
+                        st.error(f"開く失敗: {e}")
                 elif kind == "delete_init":
                     st.session_state[f"_del_pending_{ad}_{aid}"] = True
                 elif kind == "delete_confirm":
@@ -704,7 +709,7 @@ elif current_stage == "converge":
             with st.spinner("Geminiが軸を考えています..."):
                 try:
                     axes = gemini_client.generate_json(
-                        prompts.axes_prompt(topic, df.to_csv(index=False))
+                        prompts.axes_prompt(topic, df.to_csv(index=True, index_label="row"))
                     )
                     storage.save_axes(work_date, axes)
                     st.success(f"軸 {len(axes)} 個提案")
@@ -713,7 +718,39 @@ elif current_stage == "converge":
                     st.error(f"エラー: {e}")
 
         axes = storage.load_axes(work_date)
+
         if axes:
+            with st.expander("🔁 全軸を再考（Geminiに追加指示を出す）", expanded=False):
+                st.caption(
+                    "前回の軸候補がイマイチなら、ここに「もっと若手社員視点で」「採用観点に寄せて」など"
+                    "の指示を入れて作り直させる。読み手の需要に当てに行くための切り口調整用。"
+                )
+                feedback_all = st.text_area(
+                    "Geminiへの再考指示",
+                    placeholder="例: もっと若手社員の悩みに寄せて。業種別じゃなくて、判断タイミング軸で。",
+                    height=100,
+                    key="axes_refeed_feedback",
+                    label_visibility="collapsed",
+                )
+                if st.button("この指示で全軸を作り直す", key="axes_refeed_btn"):
+                    if not feedback_all.strip():
+                        st.warning("再考指示を入力してください")
+                    else:
+                        with st.spinner("Geminiが軸を作り直しています..."):
+                            try:
+                                new_axes = gemini_client.generate_json(
+                                    prompts.axes_prompt(
+                                        topic,
+                                        df.to_csv(index=True, index_label="row"),
+                                        user_feedback=feedback_all,
+                                    )
+                                )
+                                storage.save_axes(work_date, new_axes)
+                                st.success(f"軸 {len(new_axes)} 個を再生成しました")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"エラー: {e}")
+
             st.subheader(f"軸候補 × {len(axes)}")
             st.caption("各軸が **お題にどう沿っているか**（topic_alignment）を確認して、1つ選んでください。")
 
@@ -738,6 +775,133 @@ elif current_stage == "converge":
             chosen = axes[chosen_idx]
             with st.expander("選択中の軸の詳細（生JSON）"):
                 st.json(chosen)
+
+            # ---- この軸だけをGeminiに再考させる ----
+            with st.expander("🔁 この軸だけを再考（Geminiに指示）", expanded=False):
+                st.caption(
+                    "選択中の軸（テーマ自体）だけを作り直す。「もっと採用観点に寄せて」"
+                    "「失敗パターンの分類軸に変えて」など、読み手の需要に当てるための切り口指示。"
+                )
+                feedback_one = st.text_area(
+                    "この軸への再考指示",
+                    placeholder="例: 採用観点ではなく、ROI判断のフレームで切り直して。",
+                    height=100,
+                    key=f"axis_refine_feedback_{chosen_idx}",
+                    label_visibility="collapsed",
+                )
+                if st.button(
+                    "この軸を作り直す", key=f"axis_refine_btn_{chosen_idx}"
+                ):
+                    if not feedback_one.strip():
+                        st.warning("再考指示を入力してください")
+                    else:
+                        with st.spinner("Geminiがこの軸を作り直しています..."):
+                            try:
+                                new_axis = gemini_client.generate_json(
+                                    prompts.axis_refine_prompt(
+                                        topic,
+                                        df.to_csv(index=True, index_label="row"),
+                                        chosen,
+                                        feedback_one,
+                                    )
+                                )
+                                # 配列で返ってきたら先頭を採用（ガード）
+                                if isinstance(new_axis, list) and new_axis:
+                                    new_axis = new_axis[0]
+                                axes[chosen_idx] = new_axis
+                                storage.save_axes(work_date, axes)
+                                st.success("軸を再生成しました")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"エラー: {e}")
+
+            # ---- 軸の「束ね方（description）」編集 ----
+            st.divider()
+            st.markdown("**この軸の「束ね方（description）」を編集**")
+            st.caption("事例を見て、軸の切り口（束ね方の説明）を自分で調整できます。後段のangle生成にも反映されます。")
+            original_desc = chosen.get("original_description", chosen.get("description", ""))
+            edited_desc = st.text_area(
+                "束ね方（description）",
+                value=chosen.get("description", ""),
+                height=100,
+                key=f"axis_desc_editor_{chosen_idx}",
+                label_visibility="collapsed",
+            )
+            col_desc_save, col_desc_reset = st.columns(2)
+            with col_desc_save:
+                if st.button("束ね方を保存", width="stretch", key=f"save_desc_{chosen_idx}"):
+                    if "original_description" not in axes[chosen_idx]:
+                        axes[chosen_idx]["original_description"] = chosen.get("description", "")
+                    axes[chosen_idx]["description"] = edited_desc
+                    storage.save_axes(work_date, axes)
+                    st.success("束ね方を保存しました")
+                    st.rerun()
+            with col_desc_reset:
+                if st.button("Gemini提案にリセット", width="stretch", key=f"reset_desc_{chosen_idx}"):
+                    axes[chosen_idx]["description"] = original_desc
+                    storage.save_axes(work_date, axes)
+                    st.success("リセットしました")
+                    st.rerun()
+
+            # ---- 事例×グループ振り分け編集 ----
+            if "assignments" in chosen and chosen.get("groups"):
+                st.divider()
+                st.markdown("**事例 × グループの振り分け**（Gemini提案を編集できます）")
+                st.caption("「現在のグループ」列のセルをクリックで変更。元のGemini提案は読み取り専用で隣に表示。")
+
+                groups = chosen.get("groups", [])
+                assignments = {str(k): v for k, v in chosen.get("assignments", {}).items()}
+                original = {str(k): v for k, v in chosen.get("original_assignments", assignments).items()}
+
+                cases_view = df.reset_index().rename(columns={"index": "row"})
+                cases_view["row"] = cases_view["row"].astype(str)
+                cases_view["元のGemini提案"] = cases_view["row"].map(original).fillna("（未割当）")
+                cases_view["現在のグループ"] = cases_view["row"].map(assignments).fillna(groups[0] if groups else "")
+
+                # 不明なグループ値（編集中に groups から消えた等）は groups[0] に寄せる
+                cases_view["現在のグループ"] = cases_view["現在のグループ"].where(
+                    cases_view["現在のグループ"].isin(groups), groups[0] if groups else ""
+                )
+
+                show_cols = ["row"]
+                for c in ["誰が", "何を", "結果_数字"]:
+                    if c in cases_view.columns:
+                        show_cols.append(c)
+                show_cols += ["元のGemini提案", "現在のグループ"]
+
+                column_config = {
+                    "row": st.column_config.TextColumn("ID", disabled=True, width="small"),
+                    "元のGemini提案": st.column_config.TextColumn("元のGemini提案", disabled=True),
+                    "現在のグループ": st.column_config.SelectboxColumn(
+                        "現在のグループ", options=groups, required=True
+                    ),
+                }
+                for c in ["誰が", "何を", "結果_数字"]:
+                    if c in show_cols:
+                        column_config[c] = st.column_config.TextColumn(c, disabled=True)
+
+                edited = st.data_editor(
+                    cases_view[show_cols],
+                    column_config=column_config,
+                    hide_index=True,
+                    width="stretch",
+                    key=f"assignments_editor_{chosen_idx}",
+                )
+
+                col_save, col_reset = st.columns(2)
+                with col_save:
+                    if st.button("振り分けを保存", width="stretch", key=f"save_assign_{chosen_idx}"):
+                        new_assignments = dict(zip(edited["row"], edited["現在のグループ"]))
+                        axes[chosen_idx]["assignments"] = new_assignments
+                        storage.save_axes(work_date, axes)
+                        st.success("保存しました")
+                        st.rerun()
+                with col_reset:
+                    if st.button("Gemini提案にリセット", width="stretch", key=f"reset_assign_{chosen_idx}"):
+                        axes[chosen_idx]["assignments"] = dict(original)
+                        storage.save_axes(work_date, axes)
+                        st.success("リセットしました")
+                        st.rerun()
 
             if st.button("この軸で角度（angle）を確定 → ③企画へ", type="primary"):
                 with st.spinner("Geminiが角度を組み立てています..."):

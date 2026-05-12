@@ -398,6 +398,18 @@ def load_axes(d: date) -> list[dict[str, str]]:
 
 
 def save_axes(d: date, axes: list[dict[str, str]]) -> None:
+    """軸を保存する。`assignments` を初めて見たときに `original_assignments` を不変コピーとして残す。
+    すでに `original_assignments` がある軸は上書きしない（Gemini初回提案を保持するため）。
+    軸の同定は順序ベース（既存ファイル N 番目 == 新規 axes N 番目）。"""
+    existing = load_axes(d)
+    for i, ax in enumerate(axes):
+        if "assignments" not in ax:
+            continue
+        prev_original = existing[i].get("original_assignments") if i < len(existing) else None
+        if prev_original is not None:
+            ax["original_assignments"] = prev_original
+        else:
+            ax["original_assignments"] = dict(ax["assignments"])
     axes_path(d).write_text(json.dumps(axes, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
