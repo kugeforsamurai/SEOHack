@@ -659,6 +659,7 @@ elif current_stage == "diverge":
                                 if col not in df.columns:
                                     df[col] = ""
                             storage.save_cases(work_date, df)
+                            storage.snapshot_original(storage.cases_path(work_date))
                             st.success(f"{len(df)} 件生成しました")
                             st.rerun()
                     except Exception as e:
@@ -712,6 +713,7 @@ elif current_stage == "converge":
                         prompts.axes_prompt(topic, df.to_csv(index=True, index_label="row"))
                     )
                     storage.save_axes(work_date, axes)
+                    storage.snapshot_original(storage.axes_path(work_date))
                     st.success(f"軸 {len(axes)} 個提案")
                     st.rerun()
                 except Exception as e:
@@ -746,6 +748,7 @@ elif current_stage == "converge":
                                     )
                                 )
                                 storage.save_axes(work_date, new_axes)
+                                storage.snapshot_original(storage.axes_path(work_date))
                                 st.success(f"軸 {len(new_axes)} 個を再生成しました")
                                 st.rerun()
                             except Exception as e:
@@ -810,6 +813,7 @@ elif current_stage == "converge":
                                     new_axis = new_axis[0]
                                 axes[chosen_idx] = new_axis
                                 storage.save_axes(work_date, axes)
+                                storage.snapshot_original(storage.axes_path(work_date))
                                 st.success("軸を再生成しました")
                                 st.rerun()
                             except Exception as e:
@@ -911,6 +915,7 @@ elif current_stage == "converge":
                         )
                         angle_md = persona.sanitize_emoji(angle_md)
                         storage.save_angle(work_date, angle_md)
+                        storage.snapshot_original(storage.angle_path(work_date))
                         st.session_state["angle_editor"] = angle_md
                         storage.mark_stage(work_date, "converge", True)
                         goto("outline")
@@ -976,6 +981,7 @@ elif current_stage == "outline":
                         )
                         outline_md = persona.sanitize_emoji(outline_md)
                         storage.save_outline(work_date, outline_md)
+                        storage.snapshot_original(storage.outline_path(work_date))
                         # 構造化エディタの session_state をクリアして file から再ロード
                         for k in list(st.session_state.keys()):
                             if k.startswith("out_"):
@@ -1224,6 +1230,7 @@ elif current_stage == "review":
                             prompts.review_and_images_prompt(topic, outline, angle)
                         )
                         storage.save_review(work_date, review)
+                        storage.snapshot_original(storage.review_path(work_date))
                         st.success(f"提案完了: 重点{len(review.get('key_sections', []))}件 / 画像{len(review.get('images', []))}件")
                         st.rerun()
                     except Exception as e:
@@ -1667,6 +1674,7 @@ elif current_stage == "write":
                                 storage.save_sections_file(work_date, {
                                     "title": title, "lead": lead, "sections": merged,
                                 })
+                                storage.snapshot_original(storage.sections_path(work_date))
                                 st.session_state[f"sec_text_{i}"] = content
                                 st.rerun()
                             except Exception as e:
@@ -1740,6 +1748,7 @@ elif current_stage == "write":
 
                 blog_md = "\n\n".join(parts)
                 storage.save_blog(work_date, blog_md)
+                storage.snapshot_original(storage.blog_path(work_date))
                 storage.save_sections_file(work_date, {
                     "title": title, "lead": lead, "sections": merged,
                 })
@@ -1782,6 +1791,7 @@ elif current_stage == "write":
                             if isinstance(p, dict) and p.get("text"):
                                 p["text"] = persona.sanitize_emoji(p["text"])
                         storage.save_posts(work_date, posts)
+                        storage.snapshot_original(storage.posts_path(work_date))
                         for i, p in enumerate(posts):
                             st.session_state[f"post_text_{i}"] = p.get("text", "")
                         st.success(f"投稿 {len(posts)} 本生成")

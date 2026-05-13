@@ -514,6 +514,25 @@ def image_path(d: date, image_id: str, ext: str = "png") -> Path:
 
 
 # --- Stage 6: post_results.json ---
+def snapshot_original(target: Path) -> None:
+    """AI生成完了後に呼ぶ。`target` のスナップショットを `.original.<ext>` として保存。
+    ユーザーが編集する前のAI原案を保持する目的。再生成時は上書きされる（最新のAI原案を残す）。
+    user_save時に呼んではいけない（編集が原案を汚染する）。"""
+    if not target.exists():
+        return
+    orig = target.with_suffix(f".original{target.suffix}")
+    orig.write_bytes(target.read_bytes())
+
+
+def load_original(target: Path) -> str | None:
+    """AI原案スナップショットをテキストで読む。バイナリ用途には未対応。
+    存在しなければ None。"""
+    orig = target.with_suffix(f".original{target.suffix}")
+    if not orig.exists():
+        return None
+    return orig.read_text(encoding="utf-8")
+
+
 def results_path(d: date) -> Path:
     return date_dir(d) / "post_results.json"
 
