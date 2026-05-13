@@ -1612,6 +1612,34 @@ elif current_stage == "write":
                 key="blog_lead",
                 placeholder=lead_direction[:120] if lead_direction else "",
             )
+            lead_gen_disabled = not title or not lead_direction
+            lead_gen_help = (
+                "タイトル or ③のリード方向性が空のため生成できません"
+                if lead_gen_disabled
+                else "③で書いたリード方向性を元に120〜200字のリード文をGeminiで生成"
+            )
+            if st.button(
+                "✨ リード文を生成",
+                key="lead_gen_btn",
+                disabled=lead_gen_disabled,
+                help=lead_gen_help,
+                width="stretch",
+            ):
+                with st.spinner("Geminiがリード文を書いています..."):
+                    try:
+                        new_lead = gemini_client.generate_text(
+                            prompts.lead_prompt(topic, title, lead_direction, outline)
+                        )
+                        new_lead = persona.sanitize_emoji(new_lead).strip()
+                        storage.save_sections_file(work_date, {
+                            "title": title, "lead": new_lead, "sections": merged,
+                        })
+                        storage.snapshot_original(storage.sections_path(work_date))
+                        st.session_state["blog_lead"] = new_lead
+                        st.success(f"リード生成完了（{len(new_lead)}字）")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"エラー: {e}")
 
         st.divider()
 
