@@ -398,48 +398,33 @@ if mode == "production":
     st.divider()
     with st.expander("📦 データのバックアップ / 復元"):
         st.caption(
-            "Streamlit Cloud は再起動でデータが消える可能性があります。"
-            "重要な制作は ZIP でダウンロードして手元に保存してください。"
+            "データは Supabase（クラウドDB）に保存されているため、Streamlit Cloud の再起動でも消えません。"
+            "ローカルにも一応バックアップしたい場合は ZIP ダウンロードを使ってください。"
         )
-
-        # ZIP build on demand
-        def _make_session_zip() -> bytes:
-            import io, zipfile
-            buf = io.BytesIO()
-            root = storage._user_root()
-            with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-                if root.exists():
-                    for f in root.rglob("*"):
-                        if f.is_file():
-                            try:
-                                zf.write(f, f.relative_to(root))
-                            except Exception:
-                                pass
-            return buf.getvalue()
 
         from datetime import datetime as _dt
-        st.download_button(
-            "📥 全データを ZIP ダウンロード",
-            data=_make_session_zip(),
-            file_name=f"media_data_{_dt.now().strftime('%Y%m%d_%H%M%S')}.zip",
-            mime="application/zip",
-            width="stretch",
-        )
+        if st.button("📥 全データを ZIP でダウンロード", width="stretch", key="_dl_zip_btn"):
+            try:
+                zip_bytes = storage.export_zip_bytes()
+                st.download_button(
+                    "↓ ダウンロード（クリック）",
+                    data=zip_bytes,
+                    file_name=f"media_data_{_dt.now().strftime('%Y%m%d_%H%M%S')}.zip",
+                    mime="application/zip",
+                    width="stretch",
+                    key="_dl_zip_actual",
+                )
+            except Exception as e:
+                st.error(f"バックアップ失敗: {e}")
 
         st.divider()
-        st.caption("以前ダウンロードした ZIP を復元（**既存データは上書きされます**）")
+        st.caption("以前ダウンロードした ZIP を復元（**同じキーのデータは上書きされます**）")
         uploaded = st.file_uploader("ZIP を選択", type=["zip"], key="_upload_zip", label_visibility="collapsed")
         if uploaded is not None:
-            if st.button("⚠️ 復元する（既存セッションのデータは削除）", width="stretch"):
-                import zipfile, shutil
-                root = storage._user_root()
+            if st.button("⚠️ 復元する（同名データは上書き）", width="stretch"):
                 try:
-                    if root.exists():
-                        shutil.rmtree(root)
-                    root.mkdir(parents=True, exist_ok=True)
-                    with zipfile.ZipFile(uploaded, "r") as zf:
-                        zf.extractall(root)
-                    st.success("復元完了。ページを再読み込みしてください。")
+                    n = storage.import_zip_bytes(uploaded.read())
+                    st.success(f"{n} 件を復元しました。ページを再読み込みしてください。")
                     st.rerun()
                 except Exception as e:
                     st.error(f"復元エラー: {e}")
@@ -1332,7 +1317,7 @@ elif current_stage == "review":
             for i, img in enumerate(images):
                 img_id = img.get("id", f"img_{i}")
                 img_path = storage.image_path(work_date, img_id)
-                exists = img_path.exists()
+                exists = storage.image_exists(work_date, img_id)
                 diagram_type = img.get("diagram_type") or img.get("style") or "?"
 
                 with st.container(border=True):
@@ -1382,21 +1367,22 @@ elif current_stage == "review":
                                 with st.spinner("OpenAI で画像生成中...（30〜60秒）"):
                                     try:
                                         prompt_en = prompts.image_prompt_for_checklist(cl_title, cl_items)
-                                        openai_client.generate_image(
-                                            prompt=prompt_en, save_path=img_path,
+                                        img_bytes = openai_client.generate_image(
+                                            prompt=prompt_en,
                                             size=size, quality=quality,
                                         )
+                                        storage.save_image_bytes(work_date, img_id, img_bytes)
                                         st.success("生成完了")
                                         st.rerun()
                                     except Exception as e:
                                         st.error(f"エラー: {e}")
                         with col_dl:
                             if exists:
-                                with open(img_path, "rb") as f:
-                                    st.download_button(
-                                        "ダウンロード", f.read(), file_name=img_path.name,
-                                        mime="image/png", key=f"img_dl_{i}", width="stretch",
-                                    )
+                                _img_data = storage.load_image_bytes(work_date, img_id) or b""
+                                st.download_button(
+                                    "ダウンロード", _img_data, file_name=img_path.name,
+                                    mime="image/png", key=f"img_dl_{i}", width="stretch",
+                                )
 
                         updated.append({
                             **img, "size": size,
@@ -1465,21 +1451,22 @@ elif current_stage == "review":
                                 with st.spinner("OpenAI で画像生成中...（30〜60秒）"):
                                     try:
                                         prompt_en = prompts.image_prompt_for_table(tb_title, cols, new_rows)
-                                        openai_client.generate_image(
-                                            prompt=prompt_en, save_path=img_path,
+                                        img_bytes = openai_client.generate_image(
+                                            prompt=prompt_en,
                                             size=size, quality=quality,
                                         )
+                                        storage.save_image_bytes(work_date, img_id, img_bytes)
                                         st.success("生成完了")
                                         st.rerun()
                                     except Exception as e:
                                         st.error(f"エラー: {e}")
                         with col_dl:
                             if exists:
-                                with open(img_path, "rb") as f:
-                                    st.download_button(
-                                        "ダウンロード", f.read(), file_name=img_path.name,
-                                        mime="image/png", key=f"img_dl_{i}", width="stretch",
-                                    )
+                                _img_data = storage.load_image_bytes(work_date, img_id) or b""
+                                st.download_button(
+                                    "ダウンロード", _img_data, file_name=img_path.name,
+                                    mime="image/png", key=f"img_dl_{i}", width="stretch",
+                                )
 
                         updated.append({
                             **img, "size": size,
@@ -1520,26 +1507,29 @@ elif current_stage == "review":
                                 with st.spinner("OpenAIで画像生成中...（10〜30秒）"):
                                     try:
                                         wrapped_prompt = prompts.image_prompt_wrap_for_freeform(prompt_user)
-                                        openai_client.generate_image(
-                                            prompt=wrapped_prompt, save_path=img_path,
+                                        img_bytes = openai_client.generate_image(
+                                            prompt=wrapped_prompt,
                                             size=size, quality=quality,
                                         )
+                                        storage.save_image_bytes(work_date, img_id, img_bytes)
                                         st.success("生成完了")
                                         st.rerun()
                                     except Exception as e:
                                         st.error(f"エラー: {e}")
                         with col_dl:
                             if exists:
-                                with open(img_path, "rb") as f:
-                                    st.download_button(
-                                        "ダウンロード", f.read(), file_name=img_path.name,
-                                        mime="image/png", key=f"img_dl_{i}", width="stretch",
-                                    )
+                                _img_data = storage.load_image_bytes(work_date, img_id) or b""
+                                st.download_button(
+                                    "ダウンロード", _img_data, file_name=img_path.name,
+                                    mime="image/png", key=f"img_dl_{i}", width="stretch",
+                                )
 
                         updated.append({**img, "size": size, "prompt_en": prompt_user})
 
                     if exists:
-                        st.image(str(img_path), width="stretch")
+                        _disp_bytes = storage.load_image_bytes(work_date, img_id)
+                        if _disp_bytes:
+                            st.image(_disp_bytes, width="stretch")
 
             if st.button("画像案を保存（編集内容を反映）"):
                 review["images"] = updated
@@ -1742,9 +1732,9 @@ elif current_stage == "write":
                 after_imgs: dict[str, list[str]] = {}
                 for img in review.get("images", []):
                     img_id = img.get("id", "")
-                    img_path = storage.image_path(work_date, img_id)
-                    if not img_path.exists():
+                    if not storage.image_exists(work_date, img_id):
                         continue
+                    img_path = storage.image_path(work_date, img_id)
                     rel = f"images/{img_path.name}"
                     alt = img.get("purpose", img_id)
                     md = f"![{alt}]({rel})"
@@ -1928,21 +1918,27 @@ elif current_stage == "publish":
         st.code(payload_str, language="json")
 
         # 画像コピー（各画像をクリップボードに貼付け可能な形でコピー）
-        images_root = storage.images_dir(work_date)
-        image_files = sorted(images_root.glob("*.png")) if images_root.exists() else []
-        if image_files:
-            st.markdown(f"**画像（{len(image_files)}枚）** — STUDIO 本文で挿入位置をクリック → 下のボタン → STUDIO で `Cmd+V`")
-            for img_path in image_files:
-                try:
-                    img_b64 = _b64.b64encode(img_path.read_bytes()).decode("ascii")
-                except Exception:
-                    continue
+        # review の images から ID を集める（Supabase化により filesystem 走査廃止）
+        review_for_imgs = storage.load_review(work_date)
+        image_entries: list[tuple[str, bytes]] = []
+        for img_meta in review_for_imgs.get("images", []):
+            img_id = img_meta.get("id", "")
+            if not img_id:
+                continue
+            data = storage.load_image_bytes(work_date, img_id)
+            if data:
+                image_entries.append((img_id, data))
+        if image_entries:
+            st.markdown(f"**画像（{len(image_entries)}枚）** — STUDIO 本文で挿入位置をクリック → 下のボタン → STUDIO で `Cmd+V`")
+            for img_id, img_data in image_entries:
+                img_b64 = _b64.b64encode(img_data).decode("ascii")
+                img_filename = f"{img_id}.png"
                 with st.container(border=True):
                     col_thumb, col_btn = st.columns([1, 2])
                     with col_thumb:
-                        st.image(str(img_path), width=140)
+                        st.image(img_data, width=140)
                     with col_btn:
-                        st.caption(img_path.name)
+                        st.caption(img_filename)
                         components.html(
                             f"""
                             <button onclick="

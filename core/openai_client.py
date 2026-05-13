@@ -67,12 +67,11 @@ def generate_json(prompt: str) -> Any:
 
 def generate_image(
     prompt: str,
-    save_path: Path,
     size: str = "1024x1024",
     quality: str = "medium",
     _model_override: str | None = None,
-) -> Path:
-    """画像を生成して save_path に PNG 保存。返り値は保存パス。
+) -> bytes:
+    """画像を生成して PNG バイト列で返す。保存は呼び出し側で行う（Supabase等）。
     gpt-image-2 が verify 未完了で 403 になった場合、自動で gpt-image-1 にフォールバック。"""
     chosen_model = _model_override or _model()
     payload = {
@@ -97,8 +96,7 @@ def generate_image(
         and _model_override is None  # 無限ループ防止
     ):
         return generate_image(
-            prompt=prompt, save_path=save_path,
-            size=size, quality=quality,
+            prompt=prompt, size=size, quality=quality,
             _model_override="gpt-image-1",
         )
 
@@ -106,7 +104,4 @@ def generate_image(
         raise RuntimeError(f"OpenAI {r.status_code}: {r.text[:600]}")
     data = r.json()
     b64 = data["data"][0]["b64_json"]
-    img_bytes = base64.b64decode(b64)
-    save_path.parent.mkdir(parents=True, exist_ok=True)
-    save_path.write_bytes(img_bytes)
-    return save_path
+    return base64.b64decode(b64)
