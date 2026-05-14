@@ -369,8 +369,29 @@ if mode == "production":
         placeholder="例: D2C向けに動画クリエイティブのAI制作で何が成果差を生むか",
         height=80,
     )
-    if topic != state.get("topic", ""):
+    angle_hint = st.text_area(
+        "切り口（angle / どんな切り方で見せるか）",
+        value=state.get("angle_hint", ""),
+        placeholder="例: 静止画 vs 動画のCPA差をメカニズム（視聴維持率シグナル）で解く",
+        height=70,
+        help="⓪のテーマ発散で出た angle をここにコピー or 手入力。全ステージのプロンプトに反映される",
+    )
+    interests_hint = st.text_area(
+        "読み手の関心（interests / なぜ知りたいか）",
+        value=state.get("interests_hint", ""),
+        placeholder="例: 動画クリエイティブの量産負荷と効果改善のROIに悩んでいる",
+        height=70,
+        help="⓪の why_for_target をここに。事例の選び方や本文のトーンに反映される",
+    )
+    dirty = (
+        topic != state.get("topic", "")
+        or angle_hint != state.get("angle_hint", "")
+        or interests_hint != state.get("interests_hint", "")
+    )
+    if dirty:
         state["topic"] = topic
+        state["angle_hint"] = angle_hint
+        state["interests_hint"] = interests_hint
         storage.save_state(work_date, state)
 
     st.divider()
@@ -611,9 +632,24 @@ if mode == "themes":
                     st.caption(
                         f"HookHack目的: {t.get('hookhack_goal', '')}　/　反響予想: {t.get('estimated_appeal', '')}"
                     )
-                    # 制作のお題欄に手動コピーするための見やすい box
-                    with st.expander("📋 タイトル文言（制作のお題欄にコピー用）"):
-                        st.code(t.get("title", ""), language="text")
+                    col_use, col_copy = st.columns([1, 1])
+                    with col_use:
+                        if st.button(
+                            "→ ①で使う（お題/切り口/関心を一括転送）",
+                            key=f"explore_use_{sel_id}_{i}",
+                            type="primary",
+                            width="stretch",
+                            help="このテーマのタイトル・切り口・関心をサイドバーのお題欄に転送して①へ移動",
+                        ):
+                            _s = storage.load_state(work_date)
+                            _s["topic"] = t.get("title", "")
+                            _s["angle_hint"] = t.get("angle", "")
+                            _s["interests_hint"] = t.get("why_for_target", "")
+                            storage.save_state(work_date, _s)
+                            goto("diverge")
+                    with col_copy:
+                        with st.expander("📋 タイトルだけコピー"):
+                            st.code(t.get("title", ""), language="text")
     else:
         st.info("まだ探索履歴がありません。上のフォームでターゲットを入力して『発散』を押してください。")
 
@@ -635,7 +671,12 @@ elif current_stage == "diverge":
             if st.button("Geminiで事例を生成", type="primary", width="stretch"):
                 with st.spinner("Geminiが事例を集めています..."):
                     try:
-                        cases = gemini_client.generate_json(prompts.diverge_prompt(topic, n_cases))
+                        cases = gemini_client.generate_json(
+                            prompts.diverge_prompt(
+                                topic, n_cases,
+                                angle_hint=angle_hint, interests_hint=interests_hint,
+                            )
+                        )
                         if not isinstance(cases, list):
                             st.error(f"想定外の出力: {cases}")
                         else:
@@ -695,7 +736,10 @@ elif current_stage == "converge":
             with st.spinner("Geminiが軸を考えています..."):
                 try:
                     axes = gemini_client.generate_json(
-                        prompts.axes_prompt(topic, df.to_csv(index=True, index_label="row"))
+                        prompts.axes_prompt(
+                            topic, df.to_csv(index=True, index_label="row"),
+                            angle_hint=angle_hint, interests_hint=interests_hint,
+                        )
                     )
                     storage.save_axes(work_date, axes)
                     storage.snapshot_original(storage.axes_path(work_date))
@@ -730,6 +774,7 @@ elif current_stage == "converge":
                                         topic,
                                         df.to_csv(index=True, index_label="row"),
                                         user_feedback=feedback_all,
+                                        angle_hint=angle_hint, interests_hint=interests_hint,
                                     )
                                 )
                                 storage.save_axes(work_date, new_axes)
@@ -791,6 +836,7 @@ elif current_stage == "converge":
                                         df.to_csv(index=True, index_label="row"),
                                         chosen,
                                         feedback_one,
+                                        angle_hint=angle_hint, interests_hint=interests_hint,
                                     )
                                 )
                                 # 配列で返ってきたら先頭を採用（ガード）
@@ -896,7 +942,10 @@ elif current_stage == "converge":
                 with st.spinner("Geminiが角度を組み立てています..."):
                     try:
                         angle_md = gemini_client.generate_text(
-                            prompts.angle_prompt(topic, df.to_csv(index=False), chosen)
+                            prompts.angle_prompt(
+                                topic, df.to_csv(index=False), chosen,
+                                angle_hint=angle_hint, interests_hint=interests_hint,
+                            )
                         )
                         angle_md = persona.sanitize_emoji(angle_md)
                         storage.save_angle(work_date, angle_md)
@@ -962,7 +1011,10 @@ elif current_stage == "outline":
                             cases_df.to_csv(index=False) if not cases_df.empty else ""
                         )
                         outline_md = gemini_client.generate_text(
-                            prompts.outline_prompt(topic, angle, cases_csv_for_outline)
+                            prompts.outline_prompt(
+                                topic, angle, cases_csv_for_outline,
+                                angle_hint=angle_hint, interests_hint=interests_hint,
+                            )
                         )
                         outline_md = persona.sanitize_emoji(outline_md)
                         storage.save_outline(work_date, outline_md)
@@ -1212,7 +1264,10 @@ elif current_stage == "review":
                 with st.spinner("Geminiが提案中..."):
                     try:
                         review = gemini_client.generate_json(
-                            prompts.review_and_images_prompt(topic, outline, angle)
+                            prompts.review_and_images_prompt(
+                                topic, outline, angle,
+                                angle_hint=angle_hint, interests_hint=interests_hint,
+                            )
                         )
                         storage.save_review(work_date, review)
                         storage.snapshot_original(storage.review_path(work_date))
@@ -1618,7 +1673,10 @@ elif current_stage == "write":
                 with st.spinner("Geminiがリード文を書いています..."):
                     try:
                         new_lead = gemini_client.generate_text(
-                            prompts.lead_prompt(topic, title, lead_direction, outline)
+                            prompts.lead_prompt(
+                                topic, title, lead_direction, outline,
+                                angle_hint=angle_hint, interests_hint=interests_hint,
+                            )
                         )
                         new_lead = persona.sanitize_emoji(new_lead).strip()
                         storage.save_sections_file(work_date, {
@@ -1685,6 +1743,8 @@ elif current_stage == "write":
                                         is_self_practice=(sec["id"] == "self_practice"),
                                         is_summary=(sec["id"] == "summary"),
                                         is_cta=(sec["id"] == "cta"),
+                                        angle_hint=angle_hint,
+                                        interests_hint=interests_hint,
                                     )
                                 )
                                 content = persona.sanitize_emoji(content)
@@ -1802,7 +1862,10 @@ elif current_stage == "write":
                 with st.spinner("Geminiが投稿を書いています..."):
                     try:
                         posts = gemini_client.generate_json(
-                            prompts.posts_prompt(topic, blog_md, 5)
+                            prompts.posts_prompt(
+                                topic, blog_md, 5,
+                                angle_hint=angle_hint, interests_hint=interests_hint,
+                            )
                         )
                         # 絵文字・豆腐文字サニタイズ
                         for p in posts:
