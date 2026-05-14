@@ -370,18 +370,18 @@ if mode == "production":
         height=80,
     )
     angle_hint = st.text_area(
-        "切り口（angle / どんな切り方で見せるか）",
+        "切り口（任意 / 入れると全ステージで反映）",
         value=state.get("angle_hint", ""),
         placeholder="例: 静止画 vs 動画のCPA差をメカニズム（視聴維持率シグナル）で解く",
         height=70,
-        help="⓪のテーマ発散で出た angle をここにコピー or 手入力。全ステージのプロンプトに反映される",
+        help="空欄でもOK。入力するとプロンプトに「今回のお題コンテキスト」として注入される",
     )
     interests_hint = st.text_area(
-        "読み手の関心（interests / なぜ知りたいか）",
+        "読み手の関心（任意 / 入れると全ステージで反映）",
         value=state.get("interests_hint", ""),
         placeholder="例: 動画クリエイティブの量産負荷と効果改善のROIに悩んでいる",
         height=70,
-        help="⓪の why_for_target をここに。事例の選び方や本文のトーンに反映される",
+        help="空欄でもOK。⓪の why_for_target をここに置くと事例選びと本文のトーンが寄る",
     )
     dirty = (
         topic != state.get("topic", "")
