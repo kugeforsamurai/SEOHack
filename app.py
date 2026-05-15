@@ -4,6 +4,7 @@ Stage 1 発散 → 2 収束 → 3 企画 → 4 執筆 → 5 発信(X API)
 """
 from __future__ import annotations
 import os
+import time
 from datetime import date
 
 import pandas as pd
@@ -11,6 +12,29 @@ import streamlit as st
 from dotenv import load_dotenv
 
 from core import storage, prompts, gemini_client, x_client, openai_client, outline_parser, diagram_renderer, persona, api_keys
+
+
+# ============================================================
+# Supabase呼び出しを減らすための軽量キャッシュ
+# ============================================================
+def _cached_all_runs(ttl: float = 10.0) -> list[dict]:
+    """list_all_runs を session_state で TTL キャッシュ。
+    Supabase に毎リラン13本以上叩くのを抑えて UI を軽くする。"""
+    now = time.time()
+    cached = st.session_state.get("_all_runs_cache")
+    cached_at = st.session_state.get("_all_runs_cache_at", 0.0)
+    if cached is not None and (now - cached_at) < ttl:
+        return cached
+    fresh = storage.list_all_runs()
+    st.session_state["_all_runs_cache"] = fresh
+    st.session_state["_all_runs_cache_at"] = now
+    return fresh
+
+
+def _invalidate_runs_cache() -> None:
+    """Run作成・削除・遷移時に呼ぶ。次のリランで再フェッチ。"""
+    st.session_state.pop("_all_runs_cache", None)
+    st.session_state.pop("_all_runs_cache_at", None)
 
 load_dotenv()
 
@@ -135,8 +159,8 @@ with st.sidebar:
 if mode == "production":
   with st.sidebar:
 
-    # ---- 全制作リスト（日付横断） ----
-    all_runs = storage.list_all_runs()
+    # ---- 全制作リスト（日付横断、TTLキャッシュで軽量化） ----
+    all_runs = _cached_all_runs()
 
     # 現在のactive制作を session_state で管理（日付+run_id）
     if "_current_work_date" not in st.session_state:
@@ -154,7 +178,8 @@ if mode == "production":
 
     # 全制作リストが空なら今初期化したr1を含めて再取得
     if not all_runs:
-        all_runs = storage.list_all_runs()
+        _invalidate_runs_cache()
+        all_runs = _cached_all_runs()
 
     # session 切替検出（日付+activeRun の組合せ）
     _session_id = f"{work_date_str}/{active_id}"
@@ -217,6 +242,7 @@ if mode == "production":
         if st.button("➕ 新規制作", width="stretch", help="今日の日付で新しい空の制作を作成"):
             today = date.today()
             storage.create_run(today, topic="")
+            _invalidate_runs_cache()
             st.session_state["_current_work_date"] = today.isoformat()
             st.session_state["current_stage"] = "diverge"
             st.rerun()
@@ -243,6 +269,7 @@ if mode == "production":
         if st.button("🗑️", width="stretch", help="現在の制作を削除（最後の1つは削除不可）"):
             try:
                 storage.delete_run(work_date, active_id)
+                _invalidate_runs_cache()
                 st.success("削除しました")
                 # 次に表示する制作を選ぶ（最新の1つ）
                 remaining = storage.list_all_runs()
@@ -346,6 +373,7 @@ if mode == "production":
                 elif kind == "delete_confirm":
                     try:
                         storage.delete_run(date.fromisoformat(ad), aid)
+                        _invalidate_runs_cache()
                         if (ad, aid) == (work_date_str, active_id):
                             remaining = storage.list_all_runs()
                             if remaining:
@@ -368,12 +396,14 @@ if mode == "production":
         value=state.get("topic", ""),
         placeholder="例: D2C向けに動画クリエイティブのAI制作で何が成果差を生むか",
         height=80,
+        key="_topic_input",
     )
     angle_hint = st.text_area(
         "切り口（任意 / 入れると全ステージで反映）",
         value=state.get("angle_hint", ""),
         placeholder="例: 静止画 vs 動画のCPA差をメカニズム（視聴維持率シグナル）で解く",
         height=70,
+        key="_angle_input",
         help="空欄でもOK。入力するとプロンプトに「今回のお題コンテキスト」として注入される",
     )
     interests_hint = st.text_area(
@@ -381,18 +411,24 @@ if mode == "production":
         value=state.get("interests_hint", ""),
         placeholder="例: 動画クリエイティブの量産負荷と効果改善のROIに悩んでいる",
         height=70,
+        key="_interests_input",
         help="空欄でもOK。⓪の why_for_target をここに置くと事例選びと本文のトーンが寄る",
     )
+
+    # 編集中フラグ判定（明示保存方式）— キーストロークごとには Supabase に書かない
     dirty = (
         topic != state.get("topic", "")
         or angle_hint != state.get("angle_hint", "")
         or interests_hint != state.get("interests_hint", "")
     )
-    if dirty:
+    save_label = "💾 お題/切り口/関心を保存 *未保存変更あり" if dirty else "💾 お題/切り口/関心を保存"
+    if st.button(save_label, width="stretch", type=("primary" if dirty else "secondary"), disabled=not dirty):
         state["topic"] = topic
         state["angle_hint"] = angle_hint
         state["interests_hint"] = interests_hint
         storage.save_state(work_date, state)
+        st.toast("保存しました", icon="✅")
+        st.rerun()
 
     st.divider()
     st.subheader("ステージ（クリックで切替）")
@@ -646,6 +682,9 @@ if mode == "themes":
                             _s["angle_hint"] = t.get("angle", "")
                             _s["interests_hint"] = t.get("why_for_target", "")
                             storage.save_state(work_date, _s)
+                            # サイドバーのwidget stateをリセットして新しい値を初期表示させる
+                            for k in ("_topic_input", "_angle_input", "_interests_input"):
+                                st.session_state.pop(k, None)
                             goto("diverge")
                     with col_copy:
                         with st.expander("📋 タイトルだけコピー"):
@@ -661,6 +700,10 @@ elif current_stage == "diverge":
     st.header("①発散 — 具体事例の列挙")
     st.caption("Geminiで世界の事例を集める → スプレッドシートで自由に編集（行追加・列追加可）")
     stage_done_banner("diverge", "②収束")
+    st.info(
+        "💡 **生成は30〜60秒かかります。画面が白くなって反応が無くなったら、約2分待ってブラウザを `⌘+R` でリロード**してください。"
+        "裏で生成完了していることが多く、リロードで事例が表示されます。"
+    )
 
     if not topic:
         st.warning("左サイドバーで『お題』を入力してください")
