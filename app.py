@@ -1074,6 +1074,56 @@ elif current_stage == "outline":
             st.caption(f"保存先: `{storage.outline_path(work_date)}`")
 
         if outline_md:
+            # ---- 章立て全体の再考（Geminiに指示） ----
+            with st.expander("🔁 章立て全体を再考（Geminiに指示）", expanded=False):
+                st.caption(
+                    "「タイトルをもっとキャッチーに」「H2の順序を入れ替えて」「全体像が掴みやすいリードに」など、"
+                    "自然言語で指示するとGeminiが現在の章立てを土台に作り直します。"
+                    "H1タイトル候補・リード方向性・H2構成・内容メモすべてが対象。"
+                )
+                refine_feedback = st.text_area(
+                    "再考指示",
+                    placeholder=(
+                        "例: H2の1〜3個目を統合してもう少し動画CPAのメカニズム寄りに。"
+                        "タイトル候補は「比較」より「メカニズム解明」のフックで作り直して。"
+                    ),
+                    height=120,
+                    key="outline_refine_feedback",
+                    label_visibility="collapsed",
+                )
+                if st.button(
+                    "この指示で章立てを作り直す",
+                    key="outline_refine_btn",
+                    type="primary",
+                    width="stretch",
+                ):
+                    if not refine_feedback.strip():
+                        st.warning("再考指示を入力してください")
+                    else:
+                        with st.spinner("Geminiが章立てを作り直しています...（30〜60秒）"):
+                            try:
+                                _cases_csv = (
+                                    cases_df.to_csv(index=False) if not cases_df.empty else ""
+                                )
+                                new_outline = gemini_client.generate_text(
+                                    prompts.outline_refine_prompt(
+                                        topic, outline_md, refine_feedback,
+                                        cases_csv=_cases_csv,
+                                        angle_hint=angle_hint, interests_hint=interests_hint,
+                                    )
+                                )
+                                new_outline = persona.sanitize_emoji(new_outline)
+                                storage.save_outline(work_date, new_outline)
+                                storage.snapshot_original(storage.outline_path(work_date))
+                                # 編集中の widget state をクリアして file から再ロード
+                                for k in list(st.session_state.keys()):
+                                    if k.startswith("out_"):
+                                        del st.session_state[k]
+                                st.success("章立てを再生成しました")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"エラー: {e}")
+
             structured = outline_parser.parse_full(outline_md)
 
             # ---- H1 タイトル候補 ----
