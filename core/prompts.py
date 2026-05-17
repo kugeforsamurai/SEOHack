@@ -537,7 +537,7 @@ Markdownのみ出力。前置き・後書き・コードフェンス（```）で
 def image_prompt_for_checklist(title: str, items: list[str]) -> str:
     """チェックリスト画像のOpenAI gpt-image用プロンプト生成。
     エディトリアル / 編集デザイン仕様を英語で埋め込む。日本語テキストはそのまま保持指示。"""
-    items_block = "\n".join(f"  {i + 1:02d}. {item}" for i, item in enumerate(items))
+    items_block = "\n".join(f"  - {item}" for item in items)
     return f"""\
 Create a clean editorial-style infographic checklist, magazine layout aesthetic.
 
@@ -556,10 +556,12 @@ LAYOUT (top to bottom):
 3. Thin 1-pixel horizontal rule in ink black just below the title
 4. Vertical list of items below, with generous whitespace
 
-EACH ITEM display:
-- A short vertical accent bar (3px wide, deep indigo) on the left edge of the item block
-- Small mid-gray item number label (01, 02, ...) on the upper right
-- Item text in ink-black sans-serif Japanese typography
+EACH ITEM display (MUST follow exactly):
+- **An empty checkbox** on the LEFT side of the item: a square outline ~28x28 pixels, stroke 2px in deep ink black #181818, transparent fill (no checkmark inside, just the empty box)
+- The checkbox sits vertically aligned with the first line of the item text
+- 16px gap between the checkbox and the start of the item text
+- Item text in ink-black sans-serif Japanese typography, to the right of the checkbox
+- **DO NOT show any number** (no "01", "02", "1.", etc. anywhere on the item)
 - Generous vertical spacing between items
 - Thin 1-pixel horizontal hairline in light warm gray between consecutive items (not after the last)
 
@@ -569,6 +571,8 @@ ITEMS — use these EXACT Japanese texts, do not modify, translate, or paraphras
 CRITICAL REQUIREMENTS:
 - Preserve EXACT Japanese characters and word order (no replacement, paraphrasing, omission, or summarization)
 - All {len(items)} items must be displayed in full (do not skip any)
+- **Every item MUST have an empty checkbox on its left side** (this is the defining feature of the design)
+- **NO numbers anywhere** — not on the left, not on the right, not above. Numbers are forbidden.
 - No illustrations, no icons, no decorations, no photos, no people, no logos, no flowers/leaves/etc
 - Editorial / magazine-quality flat design
 - Clean, restrained, professional

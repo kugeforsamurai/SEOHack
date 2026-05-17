@@ -93,8 +93,8 @@ def render_checklist(
     - eyebrow（小キャプション）"チェックリスト"
     - 大きめのタイトル（左寄せ）
     - 細い1pxのインクブラック下線
-    - 番号は超薄いミッドグレーで脇に小さく
-    - チェックボックスはなし、左に細いアクセントバー
+    - **各項目の左に空チェックボックス**（黒い線の正方形、塗りなし）
+    - 番号は表示しない
     - 多めの余白、ヘアライン仕切り"""
     w, h = _resolve_size(size)
     img = Image.new("RGB", (w, h), COLOR_BG)
@@ -103,17 +103,16 @@ def render_checklist(
     margin = 112  # 余白広め（紙の余白感）
     title_size = 64
     eyebrow_size = 20
-    num_size = 22
     item_size = 30
     line_spacing = 12
     item_gap = 44
-    bar_w = 3        # 左の細い縦アクセントバー
-    bar_indent = 32  # バーの右の余白
-    text_indent = bar_w + bar_indent
+    box_size = 28          # チェックボックスの一辺
+    box_stroke = 2         # チェックボックスの線太さ
+    box_text_gap = 18      # チェックボックスとテキストの間隔
+    text_indent = box_size + box_text_gap
 
     title_font = _font(title_size)
     eyebrow_font = _font(eyebrow_size)
-    num_font = _font(num_size)
     item_font = _font(item_size)
 
     # 自動フォント縮小（収まるまで）
@@ -136,8 +135,6 @@ def render_checklist(
         item_font = _font(item_size)
 
     # Eyebrow（日本語小キャプション、アクセント色）
-    eyebrow = "C H E C K L I S T"  # ロゴ風レター（疑似トラッキング）
-    # 日本語要望なので "チェックリスト" にする
     eyebrow = "チェックリスト"
     draw.text((margin, margin), eyebrow, fill=COLOR_ACCENT, font=eyebrow_font)
 
@@ -155,17 +152,12 @@ def render_checklist(
         wrapped = _wrap_text(draw, item, item_font, text_max_w)
         block_h = len(wrapped) * item_size + max(0, len(wrapped) - 1) * line_spacing
 
-        # 左の細い縦アクセントバー（item_block の高さに合わせる）
+        # 左の空チェックボックス（1行目の高さに合わせて縦位置を揃える）
+        box_top = cur_y + max(0, (item_size - box_size) // 2)
         draw.rectangle(
-            (margin, cur_y + 4, margin + bar_w, cur_y + block_h + 4),
-            fill=COLOR_ACCENT,
+            (margin, box_top, margin + box_size, box_top + box_size),
+            outline=COLOR_TEXT, width=box_stroke,
         )
-
-        # 番号（極小、ミッドグレー、本文の右上に小さく）
-        num_text = f"{idx + 1:02d}"
-        num_x = w - margin - 60
-        num_y = cur_y - 2
-        draw.text((num_x, num_y), num_text, fill=COLOR_SUBTEXT, font=num_font)
 
         # 本文
         for i, line in enumerate(wrapped):
