@@ -181,6 +181,85 @@ def build_studio_payload(blog_md: str, images: dict[str, str] | None = None) -> 
     }
 
 
+def build_full_payload(blog_md: str, image_data: list[dict] | None = None) -> dict:
+    """全部入りpayload。image_data: [{id, placement, png_bytes}, ...]
+
+    返り値: {title, body_html, images:[{id, placement, filename, data:"data:image/png;base64,..."}, ...]}
+
+    1クリックでSTUDIOに反映するためのフルペイロード。
+    クリップボード経由でブックマークレットに渡し、本文+全画像をSTUDIO側でアップロード+配置する。"""
+    import base64
+    base = build_studio_payload(blog_md)
+    images: list[dict] = []
+    for d in image_data or []:
+        if "png_bytes" not in d or "id" not in d:
+            continue
+        b64 = base64.b64encode(d["png_bytes"]).decode("ascii")
+        images.append({
+            "id": d["id"],
+            "placement": d.get("placement", ""),
+            "filename": f"{d['id']}.png",
+            "data": f"data:image/png;base64,{b64}",
+        })
+    return {
+        "title": base["title"],
+        "body_html": base["body_html"],
+        "images": images,
+    }
+
+
+def make_bookmarklet_full() -> str:
+    """全部入りブックマークレット。
+    クリップボードから build_full_payload の JSON を読み、STUDIO 編集画面に：
+    - タイトルをセット
+    - 本文を完全置換
+    - 画像を STUDIO の uploadFunc でアップロード（data URL → File 変換）
+    - TOC を最初の H3 の前に挿入
+    - 画像を placement 位置に配置
+    まで自動実行する。"""
+    js = (
+        "javascript:(async()=>{try{"
+        "const d=JSON.parse(await navigator.clipboard.readText());"
+        "const{title,body_html,images=[]}=d;"
+        "const tEl=document.querySelector('div.title-div.focusable.title.main-title');"
+        "if(!tEl){alert('STUDIO\\u306e\\u7de8\\u96c6\\u753b\\u9762\\u3067\\u5b9f\\u884c\\u3057\\u3066\\u304f\\u3060\\u3055\\u3044');return;}"
+        "tEl.focus();tEl.textContent=title;"
+        "tEl.dispatchEvent(new InputEvent('input',{bubbles:true}));"
+        "tEl.dispatchEvent(new Event('change',{bubbles:true}));tEl.blur();"
+        "const ed=document.querySelector('.ProseMirror.in-cms');"
+        "if(!ed||!ed.editor){alert('\\u672c\\u6587\\u30a8\\u30c7\\u30a3\\u30bf\\u304c\\u898b\\u3064\\u304b\\u308a\\u307e\\u305b\\u3093');return;}"
+        "const e=ed.editor;"
+        "e.chain().focus().clearContent(true).setContent(body_html,true).run();"
+        "await new Promise(r=>setTimeout(r,300));"
+        "const urls={};"
+        "const fe=e.extensionManager.extensions.find(x=>x.name==='figure');"
+        "const up=fe&&fe.options&&fe.options.uploadFunc;"
+        "if(up&&images.length){"
+        "for(const img of images){"
+        "try{const r=await fetch(img.data);const b=await r.blob();"
+        "const f=new File([b],img.filename||(img.id+'.png'),{type:'image/png'});"
+        "urls[img.id]=await up(f);"
+        "}catch(err){console.warn('upload fail',img.id,err);}}}"
+        "let fh=-1;e.state.doc.descendants((n,p)=>{if(fh!==-1)return false;"
+        "if(n.type.name==='heading3'){fh=p;return false;}return true;});"
+        "if(fh!==-1)e.commands.insertContentAt(fh,{type:'table_of_contents'});"
+        "await new Promise(r=>setTimeout(r,200));"
+        "const ch=[];e.state.doc.descendants((n,p)=>{if(n.type.name==='heading3')ch.push({pos:p});return true;});"
+        "const de=e.state.doc.content.size;"
+        "function p2p(t){if(!t||t==='after:summary')return de;"
+        "const m=t.match(/^after:h2_(\\d+)$/);"
+        "if(m){const n=parseInt(m[1]);return ch[n]?ch[n].pos:de;}return de;}"
+        "const ins=images.filter(i=>urls[i.id]).map(i=>({pos:p2p(i.placement),url:urls[i.id],id:i.id}))"
+        ".sort((a,b)=>b.pos-a.pos);"
+        "for(const i of ins){"
+        "e.chain().focus().insertContentAt(i.pos,`<p><img src=\"${i.url}\" alt=\"${i.id}\"></p>`).run();"
+        "await new Promise(r=>setTimeout(r,100));}"
+        "alert('\\u2705 STUDIO\\u53cd\\u6620\\u5b8c\\u4e86: \\u753b\\u50cf'+ins.length+'/'+images.length+'\\u679a');"
+        "}catch(e){alert('\\u30a8\\u30e9\\u30fc: '+e.message);}})();"
+    )
+    return js
+
+
 def make_bookmarklet() -> str:
     """STUDIO 編集画面で実行するブックマークレットコード（旧フロー、後方互換用）。
     クリップボードから build_studio_payload の JSON を読み、タイトルと本文を自動入力。

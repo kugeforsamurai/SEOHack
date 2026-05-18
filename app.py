@@ -2020,130 +2020,132 @@ elif current_stage == "publish":
     else:
         st.caption(f"{len(blog_md)} 字")
 
-        # ---- STUDIO 連携: 半自動投稿 ----
+        # ---- STUDIO 連携: 全部入り（タイトル+本文+画像をブックマークレット1クリックで反映） ----
         from core import studio_export
         import streamlit.components.v1 as components
         import json as _json
-        import base64 as _b64
 
-        try:
-            payload = studio_export.build_studio_payload(blog_md)
-        except Exception as e:
-            st.error(f"STUDIO payload 生成エラー: {e}")
-            payload = {"title": "", "body_html": ""}
-
-        st.markdown("### 📥 STUDIO へ半自動投稿")
-        st.caption(
-            "ブックマークレットで STUDIO の編集画面にタイトル+本文を自動入力します。"
-            "見出しは H2→H3、H3→H4 に自動変換（STUDIO の大見出し/小見出し階層に合わせる）。"
-        )
-        st.markdown(f"- タイトル: `{payload['title'][:60]}...`")
-        st.markdown(f"- 本文 HTML: {len(payload['body_html'])} 文字")
-
-        # クリップボードコピー: 2つの方法を提供
-        payload_str = _json.dumps(payload, ensure_ascii=False)
-        js_payload = _json.dumps(payload_str)
-
-        # 方法1: HTMLボタン（埋込み iframe、たまに見えない問題あり）
-        st.markdown("#### 方法 1: ボタンクリックでコピー")
-        components.html(
-            f"""
-            <div style="padding:8px 0;">
-            <button id="cp-payload" onclick="
-                navigator.clipboard.writeText({js_payload}).then(() => {{
-                    this.innerText = '✅ コピー完了 — STUDIO 編集画面でブックマークレット実行';
-                    this.style.background = '#16a34a';
-                    setTimeout(() => {{
-                        this.innerText = '📋 STUDIO 投稿データをクリップボードにコピー';
-                        this.style.background = '#2563eb';
-                    }}, 3500);
-                }}).catch(e => {{ this.innerText = '❌ ' + e.message; }});
-            " style="
-                background: #2563eb; color: white; padding: 14px 24px;
-                border: none; border-radius: 8px; cursor: pointer;
-                width: 100%; font-size: 15px; font-weight: 700;
-                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            ">📋 STUDIO 投稿データをクリップボードにコピー</button>
-            </div>
-            """,
-            height=80,
-        )
-
-        # 方法2: コードブロック（右上の📋アイコンで確実にコピー可能）
-        st.markdown("#### 方法 2: 上のボタンが押せない時 — コードブロック右上の 📋 でコピー")
-        st.code(payload_str, language="json")
-
-        # 画像コピー（各画像をクリップボードに貼付け可能な形でコピー）
-        # review の images から ID を集める（Supabase化により filesystem 走査廃止）
+        # 画像を集める
         review_for_imgs = storage.load_review(work_date)
-        image_entries: list[tuple[str, bytes]] = []
+        image_entries: list[dict] = []
         for img_meta in review_for_imgs.get("images", []):
             img_id = img_meta.get("id", "")
             if not img_id:
                 continue
             data = storage.load_image_bytes(work_date, img_id)
             if data:
-                image_entries.append((img_id, data))
-        if image_entries:
-            st.markdown(f"**画像（{len(image_entries)}枚）** — STUDIO 本文で挿入位置をクリック → 下のボタン → STUDIO で `Cmd+V`")
-            for img_id, img_data in image_entries:
-                img_b64 = _b64.b64encode(img_data).decode("ascii")
-                img_filename = f"{img_id}.png"
-                with st.container(border=True):
-                    col_thumb, col_btn = st.columns([1, 2])
-                    with col_thumb:
-                        st.image(img_data, width=140)
-                    with col_btn:
-                        st.caption(img_filename)
-                        components.html(
-                            f"""
-                            <button onclick="
-                                (async () => {{
-                                    try {{
-                                        const r = await fetch('data:image/png;base64,{img_b64}');
-                                        const blob = await r.blob();
-                                        await navigator.clipboard.write([new ClipboardItem({{'image/png': blob}})]);
-                                        this.innerText = '✅ コピー完了 — STUDIO で Cmd+V';
-                                        this.style.background = '#16a34a';
-                                        setTimeout(() => {{
-                                            this.innerText = '📋 この画像をクリップボードへ';
-                                            this.style.background = '#2563eb';
-                                        }}, 3000);
-                                    }} catch (e) {{
-                                        this.innerText = '❌ ' + e.message;
-                                    }}
-                                }})();
-                            " style="
-                                background: #2563eb; color: white; padding: 8px 14px;
-                                border: none; border-radius: 6px; cursor: pointer;
-                                width: 100%; font-size: 13px;
-                            ">📋 この画像をクリップボードへ</button>
-                            """,
-                            height=50,
-                        )
-        else:
-            st.caption("画像なし（④画像&レビューで生成すれば表示されます）")
+                image_entries.append({
+                    "id": img_id,
+                    "placement": img_meta.get("placement", ""),
+                    "png_bytes": data,
+                })
+
+        try:
+            payload = studio_export.build_full_payload(blog_md, image_entries)
+        except Exception as e:
+            st.error(f"STUDIO payload 生成エラー: {e}")
+            payload = {"title": "", "body_html": "", "images": []}
+
+        st.markdown("### 📥 STUDIO へ送信（1クリックでタイトル+本文+画像すべて反映）")
+        col_info1, col_info2, col_info3 = st.columns(3)
+        with col_info1:
+            st.metric("タイトル", f"{len(payload.get('title', ''))}字")
+        with col_info2:
+            st.metric("本文 HTML", f"{len(payload.get('body_html', '')):,}字")
+        with col_info3:
+            st.metric("画像", f"{len(payload.get('images', []))}枚")
+
+        # ---- メインボタン: 全部入りpayloadをクリップボードへ ----
+        payload_str = _json.dumps(payload, ensure_ascii=False)
+        js_payload = _json.dumps(payload_str)
+        components.html(
+            f"""
+            <div style="padding:8px 0;">
+            <button onclick="
+                navigator.clipboard.writeText({js_payload}).then(() => {{
+                    this.innerText = '✅ コピー完了 — STUDIO編集画面でブックマークレット「📥 STUDIOに送る」をクリック';
+                    this.style.background = '#16a34a';
+                    setTimeout(() => {{
+                        this.innerText = '📋 STUDIO 送信用データをコピー（全部入り）';
+                        this.style.background = '#2563eb';
+                    }}, 4500);
+                }}).catch(e => {{ this.innerText = '❌ ' + e.message; }});
+            " style="
+                background: #2563eb; color: white; padding: 16px 24px;
+                border: none; border-radius: 10px; cursor: pointer;
+                width: 100%; font-size: 16px; font-weight: 700;
+                box-shadow: 0 2px 6px rgba(0,0,0,0.12);
+            ">📋 STUDIO 送信用データをコピー（全部入り）</button>
+            </div>
+            """,
+            height=84,
+        )
+
+        st.markdown("""
+        **使い方（2ステップ）**
+        1. 👆 上のボタンを押す（タイトル+本文+画像{n}枚を全部クリップボードへ）
+        2. STUDIOの編集画面に移動 → ブックマーク **「📥 STUDIOに送る」** をクリック → 自動反映完了
+        """.format(n=len(payload.get("images", []))))
 
         # ブックマークレット
-        with st.expander("🔖 ブックマークレットの登録方法（初回のみ・5分）"):
+        with st.expander("🔖 ブックマークレットの登録方法（初回のみ・3分）", expanded=False):
             st.markdown("""
-            ### 手順
+            ### 登録手順（初回だけ）
             1. Chrome のブックマークバーを表示（`Cmd + Shift + B`）
-            2. ブックマークバーで**右クリック** → **「ページを追加」**
-            3. **名前**: `📥 STUDIOに取り込む`
-            4. **URL**: 下のコードを**全部コピーして貼付け**（先頭の `javascript:` ごと）
+            2. ブックマークバーで**右クリック** → **「ページを追加」**（Edge/Safariも同様の手順）
+            3. **名前**: `📥 STUDIOに送る`
+            4. **URL**: 下のコードを**全部コピーして貼り付け**（先頭の `javascript:` ごと）
             5. **保存**
 
-            ### 使い方
-            1. メディアなんとかで「📋 STUDIO 投稿データをコピー」を押す
-            2. STUDIO の編集画面（新規記事 or 既存記事）を開く
-            3. ブックマーク `📥 STUDIOに取り込む` をクリック
-            4. 自動でタイトル+本文が入る
-            5. 画像を入れたい位置でクリック → メディアなんとかで「画像をコピー」 → STUDIO で `Cmd+V`
-            6. 確認 → STUDIO の「公開」ボタン
+            ### 使い方（毎回）
+            1. メディアなんとかで「📋 STUDIO 送信用データをコピー」を押す
+            2. STUDIO の編集画面を開く（新規記事 or 既存記事）
+            3. ブックマーク `📥 STUDIOに送る` をクリック
+            4. 自動でタイトル + 本文 + 画像 + 目次 が反映される
+            5. プレビュー確認 → STUDIO の「公開」ボタン
             """)
-            st.code(studio_export.make_bookmarklet(), language="javascript")
-            st.caption("⚠️ 上のコードは1行 javascript: スキームです。改行されていないものをそのままコピーしてください。")
+            st.code(studio_export.make_bookmarklet_full(), language="javascript")
+            st.caption("⚠️ 1行の javascript: スキームです。改行されていないものをそのままコピーしてください。")
+
+        # フォールバック：個別コピー（旧フロー用、トラブル時のみ）
+        with st.expander("🛟 個別コピー（トラブル時の手動フォールバック）", expanded=False):
+            st.caption("ブックマークレットがうまく動かない場合、データを手動でコピペします。")
+            st.code(payload_str, language="json")
+            if image_entries:
+                st.markdown(f"**画像{len(image_entries)}枚（クリップボード経由で1枚ずつ Cmd+V する場合）**")
+                import base64 as _b64
+                for img in image_entries:
+                    img_b64 = _b64.b64encode(img["png_bytes"]).decode("ascii")
+                    with st.container(border=True):
+                        col_thumb, col_btn = st.columns([1, 2])
+                        with col_thumb:
+                            st.image(img["png_bytes"], width=140)
+                        with col_btn:
+                            st.caption(f"{img['id']}.png / placement: {img.get('placement', '?')}")
+                            components.html(
+                                f"""
+                                <button onclick="
+                                    (async () => {{
+                                        try {{
+                                            const r = await fetch('data:image/png;base64,{img_b64}');
+                                            const blob = await r.blob();
+                                            await navigator.clipboard.write([new ClipboardItem({{'image/png': blob}})]);
+                                            this.innerText = '✅ コピー完了';
+                                            this.style.background = '#16a34a';
+                                            setTimeout(() => {{
+                                                this.innerText = '📋 この画像をクリップボードへ';
+                                                this.style.background = '#2563eb';
+                                            }}, 3000);
+                                        }} catch (e) {{ this.innerText = '❌ ' + e.message; }}
+                                    }})();
+                                " style="
+                                    background: #2563eb; color: white; padding: 8px 14px;
+                                    border: none; border-radius: 6px; cursor: pointer;
+                                    width: 100%; font-size: 13px;
+                                ">📋 この画像をクリップボードへ</button>
+                                """,
+                                height=50,
+                            )
 
         st.divider()
         with st.expander("ブログ Markdown プレビュー"):
