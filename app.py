@@ -430,6 +430,9 @@ if mode == "production":
         st.toast("保存しました", icon="✅")
         st.rerun()
 
+    # ②で書く方針メモは state 経由で全ステージから参照（UIは②内）
+    user_direction = state.get("user_direction", "")
+
     st.divider()
     st.subheader("ステージ（クリックで切替）")
 
@@ -717,7 +720,7 @@ elif current_stage == "diverge":
                         cases = gemini_client.generate_json(
                             prompts.diverge_prompt(
                                 topic, n_cases,
-                                angle_hint=angle_hint, interests_hint=interests_hint,
+                                angle_hint=angle_hint, interests_hint=interests_hint, user_direction=user_direction,
                             )
                         )
                         if not isinstance(cases, list):
@@ -781,7 +784,7 @@ elif current_stage == "converge":
                     axes = gemini_client.generate_json(
                         prompts.axes_prompt(
                             topic, df.to_csv(index=True, index_label="row"),
-                            angle_hint=angle_hint, interests_hint=interests_hint,
+                            angle_hint=angle_hint, interests_hint=interests_hint, user_direction=user_direction,
                         )
                     )
                     storage.save_axes(work_date, axes)
@@ -817,7 +820,7 @@ elif current_stage == "converge":
                                         topic,
                                         df.to_csv(index=True, index_label="row"),
                                         user_feedback=feedback_all,
-                                        angle_hint=angle_hint, interests_hint=interests_hint,
+                                        angle_hint=angle_hint, interests_hint=interests_hint, user_direction=user_direction,
                                     )
                                 )
                                 storage.save_axes(work_date, new_axes)
@@ -879,7 +882,7 @@ elif current_stage == "converge":
                                         df.to_csv(index=True, index_label="row"),
                                         chosen,
                                         feedback_one,
-                                        angle_hint=angle_hint, interests_hint=interests_hint,
+                                        angle_hint=angle_hint, interests_hint=interests_hint, user_direction=user_direction,
                                     )
                                 )
                                 # 配列で返ってきたら先頭を採用（ガード）
@@ -981,23 +984,60 @@ elif current_stage == "converge":
                         st.success("リセットしました")
                         st.rerun()
 
-            if st.button("この軸で角度（angle）を確定 → ③企画へ", type="primary"):
-                with st.spinner("Geminiが角度を組み立てています..."):
-                    try:
-                        angle_md = gemini_client.generate_text(
-                            prompts.angle_prompt(
-                                topic, df.to_csv(index=False), chosen,
-                                angle_hint=angle_hint, interests_hint=interests_hint,
+            # ---- ユーザーの方針メモ（任意、③以降の全プロンプトに反映） ----
+            st.divider()
+            st.markdown("**🧭 自分の方針メモ（任意 / ③企画以降の全ステージに反映）**")
+            st.caption(
+                "この軸で記事を組むときの **追加方針** をここに書いてください。"
+                "例: 「もっと若手社員視点で」「失敗事例を多めに」「自社実践コーナーをCRM領域に寄せたい」など。"
+                "Geminiが角度（angle.md）に織り込み、章立て・本文・X投稿のトーンにも反映されます。"
+            )
+            user_direction = st.text_area(
+                "自分の方針メモ",
+                value=state.get("user_direction", ""),
+                placeholder="例: 動画PoCの判断材料を、CFOが投資判断に使えるレベルの数字で示したい",
+                height=110,
+                key="_user_direction_input",
+                label_visibility="collapsed",
+            )
+            _dir_dirty = user_direction != state.get("user_direction", "")
+            col_dsave, col_dconf = st.columns([1, 2])
+            with col_dsave:
+                if st.button(
+                    "💾 方針メモを保存" if _dir_dirty else "💾 方針メモ保存済み",
+                    width="stretch",
+                    disabled=not _dir_dirty,
+                    type=("primary" if _dir_dirty else "secondary"),
+                    key="save_user_direction",
+                ):
+                    state["user_direction"] = user_direction
+                    storage.save_state(work_date, state)
+                    st.toast("保存しました", icon="✅")
+                    st.rerun()
+
+            with col_dconf:
+                if st.button("この軸 + 方針メモで角度を確定 → ③企画へ", type="primary", width="stretch"):
+                    # 未保存の方針メモがあれば確定時に一緒に保存
+                    if _dir_dirty:
+                        state["user_direction"] = user_direction
+                        storage.save_state(work_date, state)
+                    with st.spinner("Geminiが角度を組み立てています..."):
+                        try:
+                            angle_md = gemini_client.generate_text(
+                                prompts.angle_prompt(
+                                    topic, df.to_csv(index=False), chosen,
+                                    angle_hint=angle_hint, interests_hint=interests_hint,
+                                    user_direction=user_direction,
+                                )
                             )
-                        )
-                        angle_md = persona.sanitize_emoji(angle_md)
-                        storage.save_angle(work_date, angle_md)
-                        storage.snapshot_original(storage.angle_path(work_date))
-                        st.session_state["angle_editor"] = angle_md
-                        storage.mark_stage(work_date, "converge", True)
-                        goto("outline")
-                    except Exception as e:
-                        st.error(f"エラー: {e}")
+                            angle_md = persona.sanitize_emoji(angle_md)
+                            storage.save_angle(work_date, angle_md)
+                            storage.snapshot_original(storage.angle_path(work_date))
+                            st.session_state["angle_editor"] = angle_md
+                            storage.mark_stage(work_date, "converge", True)
+                            goto("outline")
+                        except Exception as e:
+                            st.error(f"エラー: {e}")
 
         angle = storage.load_angle(work_date)
         if angle:
@@ -1056,7 +1096,7 @@ elif current_stage == "outline":
                         outline_md = gemini_client.generate_text(
                             prompts.outline_prompt(
                                 topic, angle, cases_csv_for_outline,
-                                angle_hint=angle_hint, interests_hint=interests_hint,
+                                angle_hint=angle_hint, interests_hint=interests_hint, user_direction=user_direction,
                             )
                         )
                         outline_md = persona.sanitize_emoji(outline_md)
@@ -1109,7 +1149,7 @@ elif current_stage == "outline":
                                     prompts.outline_refine_prompt(
                                         topic, outline_md, refine_feedback,
                                         cases_csv=_cases_csv,
-                                        angle_hint=angle_hint, interests_hint=interests_hint,
+                                        angle_hint=angle_hint, interests_hint=interests_hint, user_direction=user_direction,
                                     )
                                 )
                                 new_outline = persona.sanitize_emoji(new_outline)
@@ -1359,7 +1399,7 @@ elif current_stage == "review":
                         review = gemini_client.generate_json(
                             prompts.review_and_images_prompt(
                                 topic, outline, angle,
-                                angle_hint=angle_hint, interests_hint=interests_hint,
+                                angle_hint=angle_hint, interests_hint=interests_hint, user_direction=user_direction,
                             )
                         )
                         storage.save_review(work_date, review)
@@ -1768,7 +1808,7 @@ elif current_stage == "write":
                         new_lead = gemini_client.generate_text(
                             prompts.lead_prompt(
                                 topic, title, lead_direction, outline,
-                                angle_hint=angle_hint, interests_hint=interests_hint,
+                                angle_hint=angle_hint, interests_hint=interests_hint, user_direction=user_direction,
                             )
                         )
                         new_lead = persona.sanitize_emoji(new_lead).strip()
@@ -2032,7 +2072,7 @@ elif current_stage == "write":
                         posts = gemini_client.generate_json(
                             prompts.posts_prompt(
                                 topic, blog_md, 5,
-                                angle_hint=angle_hint, interests_hint=interests_hint,
+                                angle_hint=angle_hint, interests_hint=interests_hint, user_direction=user_direction,
                             )
                         )
                         # 絵文字・豆腐文字サニタイズ
