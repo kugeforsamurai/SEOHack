@@ -36,6 +36,67 @@ def _invalidate_runs_cache() -> None:
     st.session_state.pop("_all_runs_cache", None)
     st.session_state.pop("_all_runs_cache_at", None)
 
+
+# ============================================================
+# ⑤⑥の重い処理（画像base64+payload組立）を @st.cache_data でキャッシュ化
+# キーは work_date と review.json の image ID 群（変更を検知して invalidate）
+# ============================================================
+@st.cache_data(show_spinner=False, max_entries=8)
+def _cached_images_b64(work_date_str: str, image_ids_tuple: tuple[str, ...]) -> dict[str, str]:
+    """指定 image_id 群の base64 文字列を取得（Supabase 経由）。
+    image_ids_tuple が同じなら再フェッチしない。
+    `image_ids_tuple` をキーに使うため、外側で `tuple(sorted(...))` で渡すこと。"""
+    import base64 as _b64
+    from datetime import date as _date
+    d = _date.fromisoformat(work_date_str)
+    out: dict[str, str] = {}
+    for img_id in image_ids_tuple:
+        data = storage.load_image_bytes(d, img_id)
+        if data:
+            out[img_id] = _b64.b64encode(data).decode("ascii")
+    return out
+
+
+@st.cache_data(show_spinner=False, max_entries=8)
+def _cached_images_bytes(work_date_str: str, image_ids_tuple: tuple[str, ...]) -> dict[str, bytes]:
+    """同上だが raw bytes 版（STUDIO payload 用、download_button 用）。"""
+    from datetime import date as _date
+    d = _date.fromisoformat(work_date_str)
+    out: dict[str, bytes] = {}
+    for img_id in image_ids_tuple:
+        data = storage.load_image_bytes(d, img_id)
+        if data:
+            out[img_id] = data
+    return out
+
+
+@st.cache_data(show_spinner=False, max_entries=4)
+def _cached_inline_blog_md(blog_md: str, id_to_b64_items: tuple) -> str:
+    """blog_md の `images/{stem}.png` 参照を data URL に置換。
+    `id_to_b64_items` は (id, b64) のタプル列。"""
+    import re as _re
+    id_to_b64 = dict(id_to_b64_items)
+
+    def repl(m: _re.Match) -> str:
+        fname = m.group(1)
+        stem = fname.rsplit(".", 1)[0]
+        b64 = id_to_b64.get(stem, "")
+        if not b64:
+            return m.group(0)
+        return f"data:image/png;base64,{b64}"
+    return _re.sub(r"images/([^\s\)]+\.png)", repl, blog_md)
+
+
+@st.cache_data(show_spinner=False, max_entries=4)
+def _cached_studio_payload(blog_md: str, id_to_bytes_items: tuple) -> dict:
+    """STUDIO 投稿用 payload。同じ blog + 同じ画像群なら再構築しない。"""
+    from core import studio_export as _se
+    image_data = [
+        {"id": img_id, "placement": "", "png_bytes": data}
+        for img_id, data in id_to_bytes_items
+    ]
+    return _se.build_full_payload(blog_md, image_data)
+
 load_dotenv()
 
 st.set_page_config(page_title="メディアなんとか", page_icon=None, layout="wide")
@@ -1975,33 +2036,18 @@ elif current_stage == "write":
 
             # 画像参照（images/foo.png）を base64 data URL に置換した版を作る
             # 編集中の保存対象は元のmd（軽い）、プレビュー/コピーは画像埋め込み版（重いがポータブル）
-            import base64 as _b64
-            import re as _re
+            # @st.cache_data 経由でキャッシュ化（同じ画像群+blog_md なら再計算しない）
             import streamlit.components.v1 as components
 
             _review_for_blog = storage.load_review(work_date)
-            _img_id_to_b64: dict[str, str] = {}
-            for _img_meta in _review_for_blog.get("images", []):
-                _img_id = _img_meta.get("id", "")
-                if not _img_id:
-                    continue
-                _data = storage.load_image_bytes(work_date, _img_id)
-                if _data:
-                    _img_id_to_b64[_img_id] = _b64.b64encode(_data).decode("ascii")
-
-            def _inline_images(text: str) -> str:
-                """`images/{name}.png` を `data:image/png;base64,...` に置換。
-                name はファイル名ベース（image_id をsafe化したもの）と一致する想定。"""
-                def repl(m: _re.Match) -> str:
-                    fname = m.group(1)  # e.g. "summary_checklist.png"
-                    stem = fname.rsplit(".", 1)[0]
-                    b64 = _img_id_to_b64.get(stem, "")
-                    if not b64:
-                        return m.group(0)  # 見つからなければそのまま残す
-                    return f"data:image/png;base64,{b64}"
-                return _re.sub(r"images/([^\s\)]+\.png)", repl, text)
-
-            blog_md_inline = _inline_images(blog_md)
+            _img_ids = tuple(sorted(
+                _m.get("id", "") for _m in _review_for_blog.get("images", []) if _m.get("id")
+            ))
+            _img_id_to_b64 = _cached_images_b64(work_date.isoformat(), _img_ids)
+            blog_md_inline = _cached_inline_blog_md(
+                blog_md,
+                tuple(sorted(_img_id_to_b64.items())),
+            )
 
             with st.expander(f"結合後のブログ本文（{len(blog_md)}字、編集 + プレビュー + コピー）", expanded=False):
                 tab_edit, tab_preview, tab_copy = st.tabs([
@@ -2140,14 +2186,18 @@ elif current_stage == "publish":
         import streamlit.components.v1 as components
         import json as _json
 
-        # 画像を集める
+        # 画像のbytesを一括取得（キャッシュ化、毎リランの再フェッチ抑止）
         review_for_imgs = storage.load_review(work_date)
+        _img_ids_pub = tuple(sorted(
+            _m.get("id", "") for _m in review_for_imgs.get("images", []) if _m.get("id")
+        ))
+        _id_to_bytes = _cached_images_bytes(work_date.isoformat(), _img_ids_pub)
+
+        # placement 情報も保持（payload に必要）
         image_entries: list[dict] = []
         for img_meta in review_for_imgs.get("images", []):
             img_id = img_meta.get("id", "")
-            if not img_id:
-                continue
-            data = storage.load_image_bytes(work_date, img_id)
+            data = _id_to_bytes.get(img_id)
             if data:
                 image_entries.append({
                     "id": img_id,
@@ -2156,6 +2206,7 @@ elif current_stage == "publish":
                 })
 
         try:
+            # placement 込みで payload を組む（こちらはキャッシュ無し、軽量）
             payload = studio_export.build_full_payload(blog_md, image_entries)
         except Exception as e:
             st.error(f"STUDIO payload 生成エラー: {e}")
@@ -2228,9 +2279,12 @@ elif current_stage == "publish":
             st.code(payload_str, language="json")
             if image_entries:
                 st.markdown(f"**画像{len(image_entries)}枚（クリップボード経由で1枚ずつ Cmd+V する場合）**")
-                import base64 as _b64
+                # base64 はキャッシュ済みのものを使い回す（毎リランの再エンコード抑止）
+                _id_to_b64_pub = _cached_images_b64(work_date.isoformat(), _img_ids_pub)
                 for img in image_entries:
-                    img_b64 = _b64.b64encode(img["png_bytes"]).decode("ascii")
+                    img_b64 = _id_to_b64_pub.get(img["id"], "")
+                    if not img_b64:
+                        continue
                     with st.container(border=True):
                         col_thumb, col_btn = st.columns([1, 2])
                         with col_thumb:
