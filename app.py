@@ -1932,17 +1932,92 @@ elif current_stage == "write":
         blog_md = storage.load_blog(work_date)
         if blog_md:
             st.divider()
-            with st.expander(f"結合後のブログ本文（{len(blog_md)}字、編集可）", expanded=False):
-                edited_blog = st.text_area(
-                    "blog.md",
-                    value=blog_md,
-                    height=500,
-                    key="blog_editor",
-                    label_visibility="collapsed",
-                )
-                if st.button("結合後のblog.mdを上書き保存"):
-                    storage.save_blog(work_date, edited_blog)
-                    st.success("保存")
+
+            # 画像参照（images/foo.png）を base64 data URL に置換した版を作る
+            # 編集中の保存対象は元のmd（軽い）、プレビュー/コピーは画像埋め込み版（重いがポータブル）
+            import base64 as _b64
+            import re as _re
+            import streamlit.components.v1 as components
+
+            _review_for_blog = storage.load_review(work_date)
+            _img_id_to_b64: dict[str, str] = {}
+            for _img_meta in _review_for_blog.get("images", []):
+                _img_id = _img_meta.get("id", "")
+                if not _img_id:
+                    continue
+                _data = storage.load_image_bytes(work_date, _img_id)
+                if _data:
+                    _img_id_to_b64[_img_id] = _b64.b64encode(_data).decode("ascii")
+
+            def _inline_images(text: str) -> str:
+                """`images/{name}.png` を `data:image/png;base64,...` に置換。
+                name はファイル名ベース（image_id をsafe化したもの）と一致する想定。"""
+                def repl(m: _re.Match) -> str:
+                    fname = m.group(1)  # e.g. "summary_checklist.png"
+                    stem = fname.rsplit(".", 1)[0]
+                    b64 = _img_id_to_b64.get(stem, "")
+                    if not b64:
+                        return m.group(0)  # 見つからなければそのまま残す
+                    return f"data:image/png;base64,{b64}"
+                return _re.sub(r"images/([^\s\)]+\.png)", repl, text)
+
+            blog_md_inline = _inline_images(blog_md)
+
+            with st.expander(f"結合後のブログ本文（{len(blog_md)}字、編集 + プレビュー + コピー）", expanded=False):
+                tab_edit, tab_preview, tab_copy = st.tabs([
+                    "✏️ 編集（Markdown）",
+                    "🖼️ プレビュー（画像表示）",
+                    "📋 コピー（画像埋め込み済み）",
+                ])
+
+                with tab_edit:
+                    edited_blog = st.text_area(
+                        "blog.md",
+                        value=blog_md,
+                        height=500,
+                        key="blog_editor",
+                        label_visibility="collapsed",
+                    )
+                    if st.button("結合後のblog.mdを上書き保存", key="save_blog_md"):
+                        storage.save_blog(work_date, edited_blog)
+                        st.success("保存")
+                        st.rerun()
+
+                with tab_preview:
+                    if not _img_id_to_b64:
+                        st.caption("画像は④で生成されていません。プレビューはテキストのみ。")
+                    st.markdown(blog_md_inline, unsafe_allow_html=True)
+
+                with tab_copy:
+                    st.caption(
+                        "下のテキストは画像が base64 で本文に埋め込まれた版です。"
+                        "Notion / Obsidian / Google Docs などに貼ってもリンク切れせず画像が残ります。"
+                        "下のコードブロック右上の **📋 ボタン** または全選択 → `⌘+C` でコピー。"
+                    )
+                    import json as _json
+                    _payload_for_copy = _json.dumps(blog_md_inline)
+                    components.html(
+                        f"""
+                        <div style="padding:8px 0;">
+                        <button onclick="
+                            navigator.clipboard.writeText({_payload_for_copy}).then(() => {{
+                                this.innerText = '✅ コピー完了';
+                                this.style.background = '#16a34a';
+                                setTimeout(() => {{
+                                    this.innerText = '📋 画像埋め込み版のMarkdownをクリップボードへ';
+                                    this.style.background = '#2563eb';
+                                }}, 3000);
+                            }}).catch(e => {{ this.innerText = '❌ ' + e.message; }});
+                        " style="
+                            background: #2563eb; color: white; padding: 12px 20px;
+                            border: none; border-radius: 8px; cursor: pointer;
+                            width: 100%; font-size: 14px; font-weight: 700;
+                        ">📋 画像埋め込み版のMarkdownをクリップボードへ</button>
+                        </div>
+                        """,
+                        height=72,
+                    )
+                    st.code(blog_md_inline, language="markdown")
 
         # ---- X投稿5本 ----
         st.divider()
