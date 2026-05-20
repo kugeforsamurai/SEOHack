@@ -1890,8 +1890,15 @@ elif current_stage == "write":
         if not merged:
             st.warning("章立てから`###`セクションが抽出できませんでした。outlineの形式を確認してください。")
 
-        for i, sec in enumerate(merged):
-            advice = advice_by_id.get(sec["id"])
+        # セクション編集を @st.fragment で囲ってセクション独立リランに
+        @st.fragment
+        def _section_editor_fragment(
+            i: int, sec: dict, advice: dict | None,
+            _topic: str, _outline: str, _cases_csv: str,
+            _title: str, _lead: str, _merged: list[dict], _work_date_str: str,
+            _angle_hint: str, _interests_hint: str, _user_direction: str,
+        ):
+            from datetime import date as _date
             is_key = advice is not None
             with st.container(border=True):
                 col_head, col_btn = st.columns([4, 1])
@@ -1912,10 +1919,9 @@ elif current_stage == "write":
                             try:
                                 written = [
                                     (s["title"], s["content"])
-                                    for s in merged
+                                    for s in _merged
                                     if s["id"] != sec["id"] and s["content"]
                                 ]
-                                # 重点セクションなら memo に advice を追記して Gemini に伝える
                                 memo = sec["memo"]
                                 if is_key:
                                     memo += (
@@ -1927,26 +1933,28 @@ elif current_stage == "write":
                                     )
                                 content = gemini_client.generate_text(
                                     prompts.section_prompt(
-                                        topic=topic,
-                                        outline_md=outline,
+                                        topic=_topic,
+                                        outline_md=_outline,
                                         section_title=sec["title"],
                                         section_memo=memo,
                                         target_chars=sec["target_chars"],
-                                        cases_csv=cases_csv,
+                                        cases_csv=_cases_csv,
                                         written_sections=written,
                                         is_self_practice=(sec["id"] == "self_practice"),
                                         is_summary=(sec["id"] == "summary"),
                                         is_cta=(sec["id"] == "cta"),
-                                        angle_hint=angle_hint,
-                                        interests_hint=interests_hint,
+                                        angle_hint=_angle_hint,
+                                        interests_hint=_interests_hint,
+                                        user_direction=_user_direction,
                                     )
                                 )
                                 content = persona.sanitize_emoji(content)
-                                merged[i]["content"] = content
-                                storage.save_sections_file(work_date, {
-                                    "title": title, "lead": lead, "sections": merged,
+                                _merged[i]["content"] = content
+                                wd_obj = _date.fromisoformat(_work_date_str)
+                                storage.save_sections_file(wd_obj, {
+                                    "title": _title, "lead": _lead, "sections": _merged,
                                 })
-                                storage.snapshot_original(storage.sections_path(work_date))
+                                storage.snapshot_original(storage.sections_path(wd_obj))
                                 st.session_state[f"sec_text_{i}"] = content
                                 st.rerun()
                             except Exception as e:
@@ -1962,13 +1970,22 @@ elif current_stage == "write":
                     key=f"sec_text_{i}",
                     label_visibility="collapsed",
                 )
-                merged[i]["content"] = edited
+                _merged[i]["content"] = edited
 
                 count = len(edited)
                 target = sec["target_chars"]
                 ratio = count / target if target else 0
                 color = "🟢" if 0.7 <= ratio <= 1.4 else ("🟡" if count > 0 else "⬜")
                 st.caption(f"{color} {count} / {target} 字")
+
+        for i, sec in enumerate(merged):
+            advice = advice_by_id.get(sec["id"])
+            _section_editor_fragment(
+                i, sec, advice,
+                topic, outline, cases_csv,
+                title, lead, merged, work_date.isoformat(),
+                angle_hint, interests_hint, user_direction,
+            )
 
         st.divider()
         c_save, c_assemble = st.columns([1, 2])
@@ -2029,81 +2046,92 @@ elif current_stage == "write":
                 st.success(f"blog.md 書き出し完了（{len(blog_md)}字 / 画像 {inserted}枚挿入）")
                 st.rerun()
 
-        # ---- 結合後のblog.md ----
+        # ---- 結合後のblog.md（@st.fragment + 重いプレビューはトグルでON） ----
         blog_md = storage.load_blog(work_date)
         if blog_md:
             st.divider()
 
-            # 画像参照（images/foo.png）を base64 data URL に置換した版を作る
-            # 編集中の保存対象は元のmd（軽い）、プレビュー/コピーは画像埋め込み版（重いがポータブル）
-            # @st.cache_data 経由でキャッシュ化（同じ画像群+blog_md なら再計算しない）
-            import streamlit.components.v1 as components
+            @st.fragment
+            def _combined_blog_fragment(_blog_md: str, _work_date_str: str):
+                """text_area編集はここだけリラン。プレビュー/コピーは明示ONした時だけ生成。"""
+                import streamlit.components.v1 as components
+                from datetime import date as _date
 
-            _review_for_blog = storage.load_review(work_date)
-            _img_ids = tuple(sorted(
-                _m.get("id", "") for _m in _review_for_blog.get("images", []) if _m.get("id")
-            ))
-            _img_id_to_b64 = _cached_images_b64(work_date.isoformat(), _img_ids)
-            blog_md_inline = _cached_inline_blog_md(
-                blog_md,
-                tuple(sorted(_img_id_to_b64.items())),
-            )
-
-            with st.expander(f"結合後のブログ本文（{len(blog_md)}字、編集 + プレビュー + コピー）", expanded=False):
-                tab_edit, tab_preview, tab_copy = st.tabs([
-                    "✏️ 編集（Markdown）",
-                    "🖼️ プレビュー（画像表示）",
-                    "📋 コピー（画像埋め込み済み）",
-                ])
-
-                with tab_edit:
+                with st.expander(f"結合後のブログ本文（{len(_blog_md)}字、編集 / プレビュー / コピー）", expanded=False):
                     edited_blog = st.text_area(
-                        "blog.md",
-                        value=blog_md,
+                        "blog.md（Markdown 編集）",
+                        value=_blog_md,
                         height=500,
                         key="blog_editor",
-                        label_visibility="collapsed",
                     )
-                    if st.button("結合後のblog.mdを上書き保存", key="save_blog_md"):
-                        storage.save_blog(work_date, edited_blog)
-                        st.success("保存")
-                        st.rerun()
+                    if st.button("結合後のblog.mdを上書き保存", key="save_blog_md", width="stretch"):
+                        storage.save_blog(_date.fromisoformat(_work_date_str), edited_blog)
+                        st.success("保存しました")
 
-                with tab_preview:
-                    if not _img_id_to_b64:
-                        st.caption("画像は④で生成されていません。プレビューはテキストのみ。")
-                    st.markdown(blog_md_inline, unsafe_allow_html=True)
+                    st.divider()
 
-                with tab_copy:
-                    st.caption(
-                        "下のテキストは画像が base64 で本文に埋め込まれた版です。"
-                        "Notion / Obsidian / Google Docs などに貼ってもリンク切れせず画像が残ります。"
-                        "下のコードブロック右上の **📋 ボタン** または全選択 → `⌘+C` でコピー。"
+                    enable_heavy = st.toggle(
+                        "🖼️ プレビュー / 📋 画像埋め込みコピー を有効化（重い処理）",
+                        value=False,
+                        key="blog_preview_enable",
+                        help=(
+                            "画像をbase64で本文に埋め込んだ版を生成します。"
+                            "画像3枚で数MB送信するため操作が重くなりがちです。"
+                            "プレビュー or 画像埋め込みコピーが必要なときだけONにしてください。"
+                        ),
                     )
-                    import json as _json
-                    _payload_for_copy = _json.dumps(blog_md_inline)
-                    components.html(
-                        f"""
-                        <div style="padding:8px 0;">
-                        <button onclick="
-                            navigator.clipboard.writeText({_payload_for_copy}).then(() => {{
-                                this.innerText = '✅ コピー完了';
-                                this.style.background = '#16a34a';
-                                setTimeout(() => {{
-                                    this.innerText = '📋 画像埋め込み版のMarkdownをクリップボードへ';
-                                    this.style.background = '#2563eb';
-                                }}, 3000);
-                            }}).catch(e => {{ this.innerText = '❌ ' + e.message; }});
-                        " style="
-                            background: #2563eb; color: white; padding: 12px 20px;
-                            border: none; border-radius: 8px; cursor: pointer;
-                            width: 100%; font-size: 14px; font-weight: 700;
-                        ">📋 画像埋め込み版のMarkdownをクリップボードへ</button>
-                        </div>
-                        """,
-                        height=72,
-                    )
-                    st.code(blog_md_inline, language="markdown")
+
+                    if enable_heavy:
+                        _wd = _date.fromisoformat(_work_date_str)
+                        _review = storage.load_review(_wd)
+                        _img_ids = tuple(sorted(
+                            _m.get("id", "") for _m in _review.get("images", []) if _m.get("id")
+                        ))
+                        _img_id_to_b64 = _cached_images_b64(_work_date_str, _img_ids)
+                        blog_md_inline = _cached_inline_blog_md(
+                            _blog_md,
+                            tuple(sorted(_img_id_to_b64.items())),
+                        )
+
+                        tab_preview, tab_copy = st.tabs([
+                            "🖼️ プレビュー（画像表示）",
+                            "📋 コピー（画像埋め込み済み）",
+                        ])
+                        with tab_preview:
+                            if not _img_id_to_b64:
+                                st.caption("画像は④で生成されていません。プレビューはテキストのみ。")
+                            st.markdown(blog_md_inline, unsafe_allow_html=True)
+                        with tab_copy:
+                            st.caption(
+                                "画像が base64 で本文に埋め込まれた版。"
+                                "Notion / Obsidian / Google Docs に貼ってもリンク切れせず画像が残る。"
+                            )
+                            import json as _json
+                            _payload_for_copy = _json.dumps(blog_md_inline)
+                            components.html(
+                                f"""
+                                <div style="padding:8px 0;">
+                                <button onclick="
+                                    navigator.clipboard.writeText({_payload_for_copy}).then(() => {{
+                                        this.innerText = '✅ コピー完了';
+                                        this.style.background = '#16a34a';
+                                        setTimeout(() => {{
+                                            this.innerText = '📋 画像埋め込み版のMarkdownをクリップボードへ';
+                                            this.style.background = '#2563eb';
+                                        }}, 3000);
+                                    }}).catch(e => {{ this.innerText = '❌ ' + e.message; }});
+                                " style="
+                                    background: #2563eb; color: white; padding: 12px 20px;
+                                    border: none; border-radius: 8px; cursor: pointer;
+                                    width: 100%; font-size: 14px; font-weight: 700;
+                                ">📋 画像埋め込み版のMarkdownをクリップボードへ</button>
+                                </div>
+                                """,
+                                height=72,
+                            )
+                            st.code(blog_md_inline, language="markdown")
+
+            _combined_blog_fragment(blog_md, work_date.isoformat())
 
         # ---- X投稿5本 ----
         st.divider()
@@ -2181,140 +2209,172 @@ elif current_stage == "publish":
     else:
         st.caption(f"{len(blog_md)} 字")
 
-        # ---- STUDIO 連携: 全部入り（タイトル+本文+画像をブックマークレット1クリックで反映） ----
+        # ---- STUDIO 連携: 全部入りpayload はボタンで明示生成（重い） ----
         from core import studio_export
-        import streamlit.components.v1 as components
-        import json as _json
 
-        # 画像のbytesを一括取得（キャッシュ化、毎リランの再フェッチ抑止）
-        review_for_imgs = storage.load_review(work_date)
-        _img_ids_pub = tuple(sorted(
-            _m.get("id", "") for _m in review_for_imgs.get("images", []) if _m.get("id")
-        ))
-        _id_to_bytes = _cached_images_bytes(work_date.isoformat(), _img_ids_pub)
+        @st.fragment
+        def _studio_publish_fragment(_blog_md: str, _work_date_str: str):
+            """重いpayload組立はボタンクリックで遅延実行。リランはこのfragment内に閉じ込める。"""
+            import streamlit.components.v1 as components
+            import json as _json
+            from datetime import date as _date
 
-        # placement 情報も保持（payload に必要）
-        image_entries: list[dict] = []
-        for img_meta in review_for_imgs.get("images", []):
-            img_id = img_meta.get("id", "")
-            data = _id_to_bytes.get(img_id)
-            if data:
-                image_entries.append({
-                    "id": img_id,
-                    "placement": img_meta.get("placement", ""),
-                    "png_bytes": data,
-                })
+            _wd = _date.fromisoformat(_work_date_str)
 
-        try:
-            # placement 込みで payload を組む（こちらはキャッシュ無し、軽量）
-            payload = studio_export.build_full_payload(blog_md, image_entries)
-        except Exception as e:
-            st.error(f"STUDIO payload 生成エラー: {e}")
-            payload = {"title": "", "body_html": "", "images": []}
+            # 画像メタだけ先に読む（軽い）
+            review_for_imgs = storage.load_review(_wd)
+            _img_ids_pub = tuple(sorted(
+                _m.get("id", "") for _m in review_for_imgs.get("images", []) if _m.get("id")
+            ))
+            img_count = len(_img_ids_pub)
+            body_size_estimate = len(_blog_md)
 
-        st.markdown("### 📥 STUDIO へ送信（1クリックでタイトル+本文+画像すべて反映）")
-        col_info1, col_info2, col_info3 = st.columns(3)
-        with col_info1:
-            st.metric("タイトル", f"{len(payload.get('title', ''))}字")
-        with col_info2:
-            st.metric("本文 HTML", f"{len(payload.get('body_html', '')):,}字")
-        with col_info3:
-            st.metric("画像", f"{len(payload.get('images', []))}枚")
+            st.markdown("### 📥 STUDIO へ送信（1クリックでタイトル+本文+画像すべて反映）")
+            col_info1, col_info2 = st.columns(2)
+            with col_info1:
+                st.metric("本文 Markdown", f"{body_size_estimate:,}字")
+            with col_info2:
+                st.metric("画像", f"{img_count}枚")
 
-        # ---- メインボタン: 全部入りpayloadをクリップボードへ ----
-        payload_str = _json.dumps(payload, ensure_ascii=False)
-        js_payload = _json.dumps(payload_str)
-        components.html(
-            f"""
-            <div style="padding:8px 0;">
-            <button onclick="
-                navigator.clipboard.writeText({js_payload}).then(() => {{
-                    this.innerText = '✅ コピー完了 — STUDIO編集画面でブックマークレット「📥 STUDIOに送る」をクリック';
-                    this.style.background = '#16a34a';
-                    setTimeout(() => {{
-                        this.innerText = '📋 STUDIO 送信用データをコピー（全部入り）';
-                        this.style.background = '#2563eb';
-                    }}, 4500);
-                }}).catch(e => {{ this.innerText = '❌ ' + e.message; }});
-            " style="
-                background: #2563eb; color: white; padding: 16px 24px;
-                border: none; border-radius: 10px; cursor: pointer;
-                width: 100%; font-size: 16px; font-weight: 700;
-                box-shadow: 0 2px 6px rgba(0,0,0,0.12);
-            ">📋 STUDIO 送信用データをコピー（全部入り）</button>
-            </div>
-            """,
-            height=84,
-        )
+            # 重いペイロード生成はボタンで明示
+            generate = st.button(
+                "🔧 送信用データを生成（画像をbase64で埋め込み）",
+                key="studio_payload_generate",
+                type="primary",
+                width="stretch",
+                help="画像をbase64エンコードする重い処理。生成後にコピー用ボタンが現れます。",
+            )
 
-        st.markdown("""
-        **使い方（2ステップ）**
-        1. 👆 上のボタンを押す（タイトル+本文+画像{n}枚を全部クリップボードへ）
-        2. STUDIOの編集画面に移動 → ブックマーク **「📥 STUDIOに送る」** をクリック → 自動反映完了
-        """.format(n=len(payload.get("images", []))))
+            if generate:
+                with st.spinner("送信用データを組み立てています..."):
+                    _id_to_bytes = _cached_images_bytes(_work_date_str, _img_ids_pub)
+                    image_entries: list[dict] = []
+                    for img_meta in review_for_imgs.get("images", []):
+                        img_id = img_meta.get("id", "")
+                        data = _id_to_bytes.get(img_id)
+                        if data:
+                            image_entries.append({
+                                "id": img_id,
+                                "placement": img_meta.get("placement", ""),
+                                "png_bytes": data,
+                            })
+                    try:
+                        payload = studio_export.build_full_payload(_blog_md, image_entries)
+                        st.session_state["_studio_payload_str"] = _json.dumps(payload, ensure_ascii=False)
+                        st.session_state["_studio_payload_meta"] = {
+                            "title_len": len(payload.get("title", "")),
+                            "body_len": len(payload.get("body_html", "")),
+                            "img_n": len(payload.get("images", [])),
+                        }
+                    except Exception as e:
+                        st.error(f"STUDIO payload 生成エラー: {e}")
 
-        # ブックマークレット
-        with st.expander("🔖 ブックマークレットの登録方法（初回のみ・3分）", expanded=False):
-            st.markdown("""
-            ### 登録手順（初回だけ）
-            1. Chrome のブックマークバーを表示（`Cmd + Shift + B`）
-            2. ブックマークバーで**右クリック** → **「ページを追加」**（Edge/Safariも同様の手順）
-            3. **名前**: `📥 STUDIOに送る`
-            4. **URL**: 下のコードを**全部コピーして貼り付け**（先頭の `javascript:` ごと）
-            5. **保存**
+            payload_str = st.session_state.get("_studio_payload_str")
+            payload_meta = st.session_state.get("_studio_payload_meta")
 
-            ### 使い方（毎回）
-            1. メディアなんとかで「📋 STUDIO 送信用データをコピー」を押す
-            2. STUDIO の編集画面を開く（新規記事 or 既存記事）
-            3. ブックマーク `📥 STUDIOに送る` をクリック
-            4. 自動でタイトル + 本文 + 画像 + 目次 が反映される
-            5. プレビュー確認 → STUDIO の「公開」ボタン
-            """)
-            st.code(studio_export.make_bookmarklet_full(), language="javascript")
-            st.caption("⚠️ 1行の javascript: スキームです。改行されていないものをそのままコピーしてください。")
+            if payload_str:
+                meta_disp = (
+                    f"準備完了 / タイトル{payload_meta['title_len']}字 / "
+                    f"本文HTML{payload_meta['body_len']:,}字 / 画像{payload_meta['img_n']}枚"
+                )
+                st.success(meta_disp)
+                js_payload = _json.dumps(payload_str)
+                components.html(
+                    f"""
+                    <div style="padding:8px 0;">
+                    <button onclick="
+                        navigator.clipboard.writeText({js_payload}).then(() => {{
+                            this.innerText = '✅ コピー完了 — STUDIO編集画面でブックマークレット「📥 STUDIOに送る」をクリック';
+                            this.style.background = '#16a34a';
+                            setTimeout(() => {{
+                                this.innerText = '📋 クリップボードへコピー';
+                                this.style.background = '#2563eb';
+                            }}, 4500);
+                        }}).catch(e => {{ this.innerText = '❌ ' + e.message; }});
+                    " style="
+                        background: #2563eb; color: white; padding: 16px 24px;
+                        border: none; border-radius: 10px; cursor: pointer;
+                        width: 100%; font-size: 16px; font-weight: 700;
+                        box-shadow: 0 2px 6px rgba(0,0,0,0.12);
+                    ">📋 クリップボードへコピー</button>
+                    </div>
+                    """,
+                    height=84,
+                )
+                st.markdown(
+                    "**使い方** : 👆 上のボタンでコピー → STUDIO編集画面でブックマーク **「📥 STUDIOに送る」** をクリック"
+                )
+            else:
+                st.caption("↑ ボタンを押すと送信用データが生成されます（押すまで重い処理は走りません）。")
 
-        # フォールバック：個別コピー（旧フロー用、トラブル時のみ）
-        with st.expander("🛟 個別コピー（トラブル時の手動フォールバック）", expanded=False):
-            st.caption("ブックマークレットがうまく動かない場合、データを手動でコピペします。")
-            st.code(payload_str, language="json")
-            if image_entries:
-                st.markdown(f"**画像{len(image_entries)}枚（クリップボード経由で1枚ずつ Cmd+V する場合）**")
-                # base64 はキャッシュ済みのものを使い回す（毎リランの再エンコード抑止）
-                _id_to_b64_pub = _cached_images_b64(work_date.isoformat(), _img_ids_pub)
-                for img in image_entries:
-                    img_b64 = _id_to_b64_pub.get(img["id"], "")
-                    if not img_b64:
-                        continue
-                    with st.container(border=True):
-                        col_thumb, col_btn = st.columns([1, 2])
-                        with col_thumb:
-                            st.image(img["png_bytes"], width=140)
-                        with col_btn:
-                            st.caption(f"{img['id']}.png / placement: {img.get('placement', '?')}")
-                            components.html(
-                                f"""
-                                <button onclick="
-                                    (async () => {{
-                                        try {{
-                                            const r = await fetch('data:image/png;base64,{img_b64}');
-                                            const blob = await r.blob();
-                                            await navigator.clipboard.write([new ClipboardItem({{'image/png': blob}})]);
-                                            this.innerText = '✅ コピー完了';
-                                            this.style.background = '#16a34a';
-                                            setTimeout(() => {{
-                                                this.innerText = '📋 この画像をクリップボードへ';
-                                                this.style.background = '#2563eb';
-                                            }}, 3000);
-                                        }} catch (e) {{ this.innerText = '❌ ' + e.message; }}
-                                    }})();
-                                " style="
-                                    background: #2563eb; color: white; padding: 8px 14px;
-                                    border: none; border-radius: 6px; cursor: pointer;
-                                    width: 100%; font-size: 13px;
-                                ">📋 この画像をクリップボードへ</button>
-                                """,
-                                height=50,
-                            )
+            # ブックマークレット
+            with st.expander("🔖 ブックマークレットの登録方法（初回のみ・3分）", expanded=False):
+                st.markdown("""
+                ### 登録手順（初回だけ）
+                1. Chrome のブックマークバーを表示（`Cmd + Shift + B`）
+                2. ブックマークバーで**右クリック** → **「ページを追加」**
+                3. **名前**: `📥 STUDIOに送る`
+                4. **URL**: 下のコードを**全部コピーして貼り付け**（先頭の `javascript:` ごと）
+                5. **保存**
+
+                ### 使い方（毎回）
+                1. seohackで「🔧 送信用データを生成」→「📋 クリップボードへコピー」
+                2. STUDIO の編集画面でブックマーク `📥 STUDIOに送る` をクリック
+                3. 自動でタイトル + 本文 + 画像 + 目次 が反映 → 公開ボタン
+                """)
+                st.code(studio_export.make_bookmarklet_full(), language="javascript")
+                st.caption("⚠️ 1行の javascript: スキームです。改行されていないものをそのままコピー。")
+
+            # フォールバック
+            with st.expander("🛟 個別コピー（トラブル時の手動フォールバック）", expanded=False):
+                if not payload_str:
+                    st.caption("↑ まず「送信用データを生成」を押してください。")
+                else:
+                    st.caption("ブックマークレットがうまく動かない場合、データを手動でコピペします。")
+                    st.code(payload_str, language="json")
+                    _id_to_b64_pub = _cached_images_b64(_work_date_str, _img_ids_pub)
+                    if _id_to_b64_pub:
+                        st.markdown(f"**画像{len(_id_to_b64_pub)}枚（1枚ずつ Cmd+V する場合）**")
+                        _id_to_bytes_fb = _cached_images_bytes(_work_date_str, _img_ids_pub)
+                        for img_meta in review_for_imgs.get("images", []):
+                            img_id = img_meta.get("id", "")
+                            img_bytes_fb = _id_to_bytes_fb.get(img_id)
+                            img_b64 = _id_to_b64_pub.get(img_id, "")
+                            if not img_bytes_fb or not img_b64:
+                                continue
+                            with st.container(border=True):
+                                col_thumb, col_btn = st.columns([1, 2])
+                                with col_thumb:
+                                    st.image(img_bytes_fb, width=140)
+                                with col_btn:
+                                    st.caption(f"{img_id}.png / placement: {img_meta.get('placement', '?')}")
+                                    components.html(
+                                        f"""
+                                        <button onclick="
+                                            (async () => {{
+                                                try {{
+                                                    const r = await fetch('data:image/png;base64,{img_b64}');
+                                                    const blob = await r.blob();
+                                                    await navigator.clipboard.write([new ClipboardItem({{'image/png': blob}})]);
+                                                    this.innerText = '✅ コピー完了';
+                                                    this.style.background = '#16a34a';
+                                                    setTimeout(() => {{
+                                                        this.innerText = '📋 この画像をクリップボードへ';
+                                                        this.style.background = '#2563eb';
+                                                    }}, 3000);
+                                                }} catch (e) {{ this.innerText = '❌ ' + e.message; }}
+                                            }})();
+                                        " style="
+                                            background: #2563eb; color: white; padding: 8px 14px;
+                                            border: none; border-radius: 6px; cursor: pointer;
+                                            width: 100%; font-size: 13px;
+                                        ">📋 この画像をクリップボードへ</button>
+                                        """,
+                                        height=50,
+                                    )
+
+        # fragment 呼び出し（上で定義した STUDIO 投稿UI）
+        _studio_publish_fragment(blog_md, work_date.isoformat())
 
         st.divider()
         with st.expander("ブログ Markdown プレビュー"):
