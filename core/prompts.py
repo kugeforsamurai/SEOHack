@@ -398,6 +398,7 @@ def outline_refine_prompt(
     cases_csv: str = "",
     angle_hint: str = "",
     interests_hint: str = "",
+    user_direction: str = "",
 ) -> str:
     """既存の章立て全体を、ユーザーの指示に沿って作り直す。
     H1（タイトル案）/ リード方向性 / H2構成 / 内容メモ をまとめて見直す。"""
@@ -834,6 +835,7 @@ def section_prompt(
     is_cta: bool = False,
     angle_hint: str = "",
     interests_hint: str = "",
+    user_direction: str = "",
 ) -> str:
     written_block = ""
     if written_sections:
