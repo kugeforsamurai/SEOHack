@@ -30,7 +30,7 @@ def _model() -> str:
 
 
 def _text_model() -> str:
-    return os.environ.get("OPENAI_TEXT_MODEL", "gpt-4o")
+    return os.environ.get("OPENAI_TEXT_MODEL", "gpt-5.5")
 
 
 def keys_configured() -> bool:

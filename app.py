@@ -1864,9 +1864,9 @@ elif current_stage == "write":
                 help=lead_gen_help,
                 width="stretch",
             ):
-                with st.spinner("Geminiがリード文を書いています..."):
+                with st.spinner(f"OpenAI ({os.environ.get('OPENAI_TEXT_MODEL', 'gpt-5.5')}) がリード文を書いています..."):
                     try:
-                        new_lead = gemini_client.generate_text(
+                        new_lead = openai_client.generate_text(
                             prompts.lead_prompt(
                                 topic, title, lead_direction, outline,
                                 angle_hint=angle_hint, interests_hint=interests_hint, user_direction=user_direction,
@@ -1917,7 +1917,7 @@ elif current_stage == "write":
                     label = "再生成" if sec["content"] else "生成"
                     btype = "secondary" if sec["content"] else "primary"
                     if st.button(label, key=f"gen_sec_{i}", type=btype, width="stretch"):
-                        with st.spinner(f"Gemini が「{sec['title']}」を書いています..."):
+                        with st.spinner(f"OpenAI ({os.environ.get('OPENAI_TEXT_MODEL', 'gpt-5.5')}) が「{sec['title']}」を書いています..."):
                             try:
                                 written = [
                                     (s["title"], s["content"])
@@ -1933,7 +1933,7 @@ elif current_stage == "write":
                                         f"- 執筆時の注意: {advice.get('writing_advice', '')}\n"
                                         f"特に丁寧に、具体的に書いてください。"
                                     )
-                                content = gemini_client.generate_text(
+                                content = openai_client.generate_text(
                                     prompts.section_prompt(
                                         topic=_topic,
                                         outline_md=_outline,
