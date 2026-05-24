@@ -1877,7 +1877,9 @@ elif current_stage == "write":
                             "title": title, "lead": new_lead, "sections": merged,
                         })
                         storage.snapshot_original(storage.sections_path(work_date))
-                        st.session_state["blog_lead"] = new_lead
+                        # widget keyがstate内にあると text_area の value= が反映されない。
+                        # rerun前に削除して、次回renderで saved.get("lead") から再初期化させる。
+                        st.session_state.pop("blog_lead", None)
                         st.success(f"リード生成完了（{len(new_lead)}字）")
                         st.rerun()
                     except Exception as e:
