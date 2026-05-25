@@ -1844,6 +1844,11 @@ elif current_stage == "write":
                     for tc in title_candidates:
                         st.markdown(f"- {tc}")
         with col_l:
+            # 生成直後の値を text_area に反映するため、widget 作成より前に session_state を更新する
+            # （Streamlit ルール: widget 作成後に同 key を代入するとエラーになるが、作成前の代入はOK）
+            if "_pending_lead_update" in st.session_state:
+                st.session_state["blog_lead"] = st.session_state.pop("_pending_lead_update")
+
             lead = st.text_area(
                 "リード（200字目安）",
                 value=saved.get("lead", ""),
@@ -1855,7 +1860,7 @@ elif current_stage == "write":
             lead_gen_help = (
                 "タイトル or ③のリード方向性が空のため生成できません"
                 if lead_gen_disabled
-                else "③で書いたリード方向性を元に120〜200字のリード文をGeminiで生成"
+                else "③で書いたリード方向性を元に120〜200字のリード文をOpenAIで生成"
             )
             if st.button(
                 "✨ リード文を生成",
@@ -1873,15 +1878,17 @@ elif current_stage == "write":
                             )
                         )
                         new_lead = persona.sanitize_emoji(new_lead).strip()
-                        storage.save_sections_file(work_date, {
-                            "title": title, "lead": new_lead, "sections": merged,
-                        })
-                        storage.snapshot_original(storage.sections_path(work_date))
-                        # widget keyがstate内にあると text_area の value= が反映されない。
-                        # rerun前に削除して、次回renderで saved.get("lead") から再初期化させる。
-                        st.session_state.pop("blog_lead", None)
-                        st.success(f"リード生成完了（{len(new_lead)}字）")
-                        st.rerun()
+                        if not new_lead:
+                            st.error("OpenAI から空の応答が返りました。モデル名・APIキーを確認してください。")
+                        else:
+                            storage.save_sections_file(work_date, {
+                                "title": title, "lead": new_lead, "sections": merged,
+                            })
+                            storage.snapshot_original(storage.sections_path(work_date))
+                            # rerun 前に「次回ロード時に session_state へ反映」を予約する
+                            st.session_state["_pending_lead_update"] = new_lead
+                            st.toast(f"リード生成完了（{len(new_lead)}字）", icon="✅")
+                            st.rerun()
                     except Exception as e:
                         st.error(f"エラー: {e}")
 
