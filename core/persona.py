@@ -34,6 +34,23 @@ def _emoji_line(use_emoji: bool) -> str:
     )
 
 
+def _samples_block(label: str, samples: str) -> str:
+    """ユーザー記述の文体サンプルをプロンプトに織り込む。空なら何も挿入しない。"""
+    samples = (samples or "").strip()
+    if not samples:
+        return ""
+    return f"""\
+
+## 参考文体サンプル（{label} / このトーンに合わせて書く）
+以下はこのアカウントの筆者が実際に書いた文章。語尾・接続詞・改行密度・段落構成・体言止め頻度・固有表現・呼びかけのトーンを **このサンプルと一致させる** こと。
+内容は引用しなくてよい（あくまで文体の参照）。コピペしない、テーマや事例は別。
+
+---
+{samples}
+---
+"""
+
+
 def blog_block() -> str:
     cfg = load()
     p = cfg.get("blog", {})
@@ -52,7 +69,7 @@ def blog_block() -> str:
 - **競合・他社**: {s.get('competitor_stance', '')}
 - **数字・単位の表記**: {s.get('numbers_format', '')}
 - **記事末の定型**: {s.get('ending_format', '')}
-"""
+{_samples_block('ブログ', p.get('style_samples', ''))}"""
 
 
 def posts_block() -> str:
@@ -69,7 +86,7 @@ def posts_block() -> str:
 - **断定の強さ**: {p.get('assertion', '')}
 - **競合・他社**: {s.get('competitor_stance', '')}
 - **末尾の定型**: {s.get('ending_format', '')}
-"""
+{_samples_block('X投稿', p.get('style_samples', ''))}"""
 
 
 def reader_block() -> str:

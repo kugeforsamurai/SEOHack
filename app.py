@@ -557,7 +557,51 @@ if mode == "production":
         st.markdown(f"**X投稿**: {cfg.get('posts', {}).get('voice', '?')} / 一人称「{cfg.get('posts', {}).get('first_person', '?')}」")
         st.markdown(f"**読者**: {cfg.get('blog', {}).get('reader_persona', '')[:60]}…")
         st.markdown(f"**NGワード**: {', '.join(cfg.get('blog', {}).get('ng_phrases', []))}")
-        with st.expander("JSON編集"):
+
+        # ---- 文体サンプル（過去に書いた文章を貼ると、その癖に寄せて生成される） ----
+        st.divider()
+        st.markdown("**🎨 文体サンプル（任意 / 貼ると AI がそのトーンに寄せて書く）**")
+        st.caption(
+            "ご自身が過去に書いた記事や投稿を貼ってください。語尾・改行・段落構成・体言止め頻度などを"
+            "AIが模倣します。内容は引用されず、あくまで「書き方」の参照に使われます。"
+        )
+
+        _blog_samples = cfg.get("blog", {}).get("style_samples", "")
+        _posts_samples = cfg.get("posts", {}).get("style_samples", "")
+
+        new_blog_samples = st.text_area(
+            "📄 ブログ用サンプル（記事本文・リード文の癖を寄せたい場合）",
+            value=_blog_samples,
+            height=180,
+            key="persona_blog_samples",
+            placeholder="例: 過去に自分が書いた記事の本文を1〜3段落貼り付け。1,000〜3,000字くらいが効果的。",
+        )
+        new_posts_samples = st.text_area(
+            "🐦 X投稿用サンプル（短文の語気を寄せたい場合）",
+            value=_posts_samples,
+            height=120,
+            key="persona_posts_samples",
+            placeholder="例: 過去に書いたX投稿を5〜10本貼り付け。投稿の間は ---（ハイフン3個）で区切ると分かりやすい。",
+        )
+
+        _samples_dirty = (
+            new_blog_samples != _blog_samples
+            or new_posts_samples != _posts_samples
+        )
+        if st.button(
+            "💾 文体サンプルを保存" if _samples_dirty else "💾 保存済み（変更なし）",
+            disabled=not _samples_dirty,
+            type=("primary" if _samples_dirty else "secondary"),
+            width="stretch",
+            key="persona_samples_save",
+        ):
+            cfg.setdefault("blog", {})["style_samples"] = new_blog_samples
+            cfg.setdefault("posts", {})["style_samples"] = new_posts_samples
+            persona.save(cfg)
+            st.toast("文体サンプルを保存しました", icon="✅")
+            st.rerun()
+
+        with st.expander("JSON編集（上級者向け / 全フィールド直接編集）"):
             import json as _json
             edited_json = st.text_area(
                 "persona.json",
@@ -566,7 +610,7 @@ if mode == "production":
                 key="persona_json_editor",
                 label_visibility="collapsed",
             )
-            if st.button("保存"):
+            if st.button("JSONを保存"):
                 try:
                     parsed = _json.loads(edited_json)
                     persona.save(parsed)
