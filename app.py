@@ -2088,6 +2088,36 @@ elif current_stage == "write":
                     if sid in after_imgs:
                         parts.extend(after_imgs[sid])
 
+                # ---- 参考文献セクションを末尾に自動追加 ----
+                # cases.csv の 出典URL を持つ事例を一覧化
+                ref_lines: list[str] = []
+                if not df.empty and "出典URL" in df.columns:
+                    seen_urls: set[str] = set()
+                    for _, row in df.iterrows():
+                        url = str(row.get("出典URL", "")).strip()
+                        if not url:
+                            continue
+                        # 「出典不明」「不明」「-」「N/A」等は除外
+                        if url in {"出典不明", "不明", "-", "N/A", "なし", "—"}:
+                            continue
+                        # http で始まらないものは URL として扱わない
+                        if not url.lower().startswith(("http://", "https://")):
+                            continue
+                        if url in seen_urls:
+                            continue
+                        seen_urls.add(url)
+                        who = str(row.get("誰が", "")).strip() or "（出典）"
+                        what = str(row.get("何を", "")).strip()
+                        # 改行は1行にまとめる
+                        what = " ".join(what.split())
+                        if what:
+                            ref_lines.append(f"- {who}「{what}」 — <{url}>")
+                        else:
+                            ref_lines.append(f"- {who} — <{url}>")
+                if ref_lines:
+                    parts.append("## 参考文献")
+                    parts.extend(ref_lines)
+
                 blog_md = "\n\n".join(parts)
                 storage.save_blog(work_date, blog_md)
                 storage.snapshot_original(storage.blog_path(work_date))
