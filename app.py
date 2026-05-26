@@ -1604,6 +1604,40 @@ elif current_stage == "review":
             st.divider()
             st.subheader(f"画像案 × {len(images)}")
 
+            # outline からセクションID → 見出しタイトル のマップを作る（配置の見える化用）
+            _parsed_for_img = outline_parser.parse(outline)
+            _section_title_by_id: dict[str, str] = {}
+            _h2_counter = 0
+            for _s in _parsed_for_img:
+                _section_title_by_id[_s.id] = _s.title
+                if _s.id.startswith("h2_"):
+                    _h2_counter += 1
+            # 特殊セクションの表示用フォールバック
+            _section_title_by_id.setdefault("self_practice", "自社実践")
+            _section_title_by_id.setdefault("summary", "まとめ")
+            _section_title_by_id.setdefault("cta", "次の一歩")
+
+            def _placement_label(placement: str) -> str:
+                """`after:h2_2` → 「📍 H2_2「セクション名」の後」のような表示用ラベル"""
+                if not placement:
+                    return "（未指定）"
+                if placement == "hero":
+                    return "📌 記事冒頭（タイトル直後）"
+                pos_word = ""
+                target = placement
+                if placement.startswith("after:"):
+                    pos_word = "の後"
+                    target = placement.split(":", 1)[1]
+                elif placement.startswith("before:"):
+                    pos_word = "の前"
+                    target = placement.split(":", 1)[1]
+                title = _section_title_by_id.get(target, "")
+                # H2_N 形式に整形
+                disp_id = target.upper() if target.startswith("h2_") else target
+                if title:
+                    return f"📍 {disp_id}「{title}」{pos_word}"
+                return f"📍 {disp_id}{pos_word}"
+
             updated = []
             size_options = ["1024x1024", "1024x1536", "1536x1024"]
 
@@ -1612,10 +1646,12 @@ elif current_stage == "review":
                 img_path = storage.image_path(work_date, img_id)
                 exists = storage.image_exists(work_date, img_id)
                 diagram_type = img.get("diagram_type") or img.get("style") or "?"
+                placement_raw = img.get("placement", "")
+                placement_disp = _placement_label(placement_raw)
 
                 with st.container(border=True):
-                    st.markdown(f"**`{img_id}`** — 配置: `{img.get('placement', '?')}` / 種別: `{diagram_type}`")
-                    st.caption(f"目的: {img.get('purpose', '')}")
+                    st.markdown(f"**`{img_id}`**　{placement_disp}　/　種別: `{diagram_type}`")
+                    st.caption(f"配置キー（生）: `{placement_raw or '?'}` / 目的: {img.get('purpose', '')}")
 
                     cur_size = img.get("size", "1024x1536")
                     if cur_size not in size_options:
