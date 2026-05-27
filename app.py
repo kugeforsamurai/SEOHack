@@ -1603,6 +1603,12 @@ elif current_stage == "review":
         if images:
             st.divider()
             st.subheader(f"画像案 × {len(images)}")
+            st.info(
+                "💡 **画像の編集はここで、実生成は⑤の本文を書き終わってからがおすすめ**。"
+                "本文中の表現・数字を見てから生成すると整合性が高まります。"
+                "⑤の「全セクションを結合」ボタンの直前に **「📷 画像を生成」** セクションが現れます。"
+                "ここ④で『🎨 OpenAIで生成』を押しても問題ありません（タイミング自由）。"
+            )
 
             # outline からセクションID → 見出しタイトル のマップを作る（配置の見える化用）
             _parsed_for_img = outline_parser.parse(outline)
@@ -2096,6 +2102,76 @@ elif current_stage == "write":
                 title, lead, merged, work_date.isoformat(),
                 angle_hint, interests_hint, user_direction,
             )
+
+        # ---- 📷 画像生成（④で設計済みの画像案を本文書き上がり後に生成） ----
+        review_for_imgs_in_write = storage.load_review(work_date)
+        _imgs_to_gen = review_for_imgs_in_write.get("images", [])
+        if _imgs_to_gen:
+            st.divider()
+            st.subheader("📷 画像を生成（本文に合わせて）")
+            st.caption(
+                "④で設計した画像案を、本文を書き上がってから生成します。"
+                "本文中の表現・数字を確認したうえで生成すると、本文との整合性が高まります。"
+                "**詳細な編集（チェックリスト項目・比較表のセル・freeformプロンプト）は④側で**行ってください。"
+            )
+
+            @st.fragment
+            def _post_write_image_gen_fragment(_work_date_str: str):
+                """⑤本文書き上がり後の画像生成。④で設計したspecを使ってOpenAIを呼ぶだけ。"""
+                from datetime import date as _date
+                _wd = _date.fromisoformat(_work_date_str)
+                _review = storage.load_review(_wd)
+                _imgs = _review.get("images", [])
+                for _idx, _img in enumerate(_imgs):
+                    _iid = _img.get("id", f"img_{_idx}")
+                    _dtype = _img.get("diagram_type") or _img.get("style") or "?"
+                    _placement = _img.get("placement", "")
+                    _exists = storage.image_exists(_wd, _iid)
+                    _size = _img.get("size", "1024x1536")
+                    _quality = "high"
+
+                    with st.container(border=True):
+                        col_meta, col_btn = st.columns([3, 1])
+                        with col_meta:
+                            st.markdown(f"**`{_iid}`** / 種別: `{_dtype}` / 配置: `{_placement}`")
+                            st.caption(f"目的: {_img.get('purpose', '')}")
+                        with col_btn:
+                            _label = "🔁 再生成" if _exists else "🎨 生成"
+                            if st.button(
+                                _label, key=f"post_gen_{_iid}",
+                                type=("secondary" if _exists else "primary"),
+                                width="stretch",
+                                disabled=not openai_client.keys_configured(),
+                            ):
+                                with st.spinner(f"OpenAI で {_iid} を生成中…"):
+                                    try:
+                                        if _dtype == "checklist":
+                                            _cl = _img.get("checklist", {})
+                                            _items = [x for x in _cl.get("items", []) if x and x.strip()]
+                                            _prompt = prompts.image_prompt_for_checklist(_cl.get("title", ""), _items)
+                                        elif _dtype == "comparison_table":
+                                            _tb = _img.get("table", {})
+                                            _prompt = prompts.image_prompt_for_table(
+                                                _tb.get("title", ""),
+                                                _tb.get("cols", []),
+                                                _tb.get("rows", []),
+                                            )
+                                        else:
+                                            _prompt = prompts.image_prompt_wrap_for_freeform(_img.get("prompt_en", ""))
+                                        _bytes = openai_client.generate_image(
+                                            prompt=_prompt, size=_size, quality=_quality,
+                                        )
+                                        storage.save_image_bytes(_wd, _iid, _bytes)
+                                        st.success("生成完了")
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"エラー: {e}")
+                        if _exists:
+                            _disp = storage.load_image_bytes(_wd, _iid)
+                            if _disp:
+                                st.image(_disp, width=240)
+
+            _post_write_image_gen_fragment(work_date.isoformat())
 
         st.divider()
         c_save, c_assemble = st.columns([1, 2])
