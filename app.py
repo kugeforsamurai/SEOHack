@@ -2368,9 +2368,50 @@ elif current_stage == "write":
                     st.caption(f"{color} {char_count}/140字")
                     edited_posts.append({**p, "text": text})
 
-            if st.button("投稿を保存"):
-                storage.save_posts(work_date, edited_posts)
-                st.success("保存")
+            col_save, col_dummy = st.columns([1, 2])
+            with col_save:
+                if st.button("投稿を保存", width="stretch"):
+                    storage.save_posts(work_date, edited_posts)
+                    st.success("保存")
+
+            # ---- 全X投稿を一気にコピペできる枠 ----
+            st.divider()
+            st.markdown("**📋 X投稿5本まとめてコピー**")
+            st.caption(
+                "5本を区切り線（`---`）で繋いだ形式で全文表示します。"
+                "下の枠を全選択 → `⌘+C` でコピー、または右上の📋ボタンで一発コピー可能。"
+            )
+            _separator = "\n\n---\n\n"
+            _all_posts_text = _separator.join(
+                f"【投稿 #{i+1} / {p.get('kind', '?')} / 想定 {p.get('scheduled_hint', '?')} / {len(p.get('text', ''))}字】\n\n{p.get('text', '')}"
+                for i, p in enumerate(edited_posts)
+            )
+            st.code(_all_posts_text, language="text")
+
+            import streamlit.components.v1 as _components
+            import json as _json_x
+            _x_payload = _json_x.dumps(_all_posts_text)
+            _components.html(
+                f"""
+                <div style="padding:8px 0;">
+                <button onclick="
+                    navigator.clipboard.writeText({_x_payload}).then(() => {{
+                        this.innerText = '✅ 5本まとめてコピー完了';
+                        this.style.background = '#16a34a';
+                        setTimeout(() => {{
+                            this.innerText = '📋 5本まとめてクリップボードへ';
+                            this.style.background = '#2563eb';
+                        }}, 3000);
+                    }}).catch(e => {{ this.innerText = '❌ ' + e.message; }});
+                " style="
+                    background: #2563eb; color: white; padding: 12px 20px;
+                    border: none; border-radius: 8px; cursor: pointer;
+                    width: 100%; font-size: 14px; font-weight: 700;
+                ">📋 5本まとめてクリップボードへ</button>
+                </div>
+                """,
+                height=68,
+            )
 
         st.divider()
         if st.button("⑤執筆を完了 → ⑥発信へ", type="primary"):
