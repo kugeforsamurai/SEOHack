@@ -1989,11 +1989,23 @@ elif current_stage == "write":
         ):
             from datetime import date as _date
             is_key = advice is not None
+            # 見出し階層を「H2_N」「H2 (まとめ)」形式に整形（## より人間可読）
+            _sid = sec.get("id", "")
+            if _sid.startswith("h2_"):
+                _h2_label = _sid.upper()  # H2_1, H2_2, ...
+            elif _sid == "self_practice":
+                _h2_label = "H2 (自社実践)"
+            elif _sid == "summary":
+                _h2_label = "H2 (まとめ)"
+            elif _sid == "cta":
+                _h2_label = "H2 (次の一歩)"
+            else:
+                _h2_label = "H2"
             with st.container(border=True):
                 col_head, col_btn = st.columns([4, 1])
                 with col_head:
                     star = "⭐ " if is_key else ""
-                    st.markdown(f"### {star}{sec['title']}")
+                    st.markdown(f"### {star}{_h2_label}: {sec['title']}")
                     st.caption(f"目標 {sec['target_chars']}字 / id: `{sec['id']}`")
                     if is_key:
                         st.info(
@@ -2060,6 +2072,15 @@ elif current_stage == "write":
                     label_visibility="collapsed",
                 )
                 _merged[i]["content"] = edited
+
+                # 本文中の H3 を抽出して H3_N: タイトル 形式で一覧表示
+                import re as _re
+                _h3_titles = _re.findall(r"^###\s+(.+)$", edited, _re.MULTILINE)
+                if _h3_titles:
+                    _h3_caption = " / ".join(
+                        f"H3_{j + 1}: {t.strip()}" for j, t in enumerate(_h3_titles)
+                    )
+                    st.caption(f"📋 {_h2_label} 内の H3 一覧 — {_h3_caption}")
 
                 count = len(edited)
                 target = sec["target_chars"]
