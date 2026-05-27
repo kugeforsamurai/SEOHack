@@ -476,17 +476,44 @@ if mode == "production":
         help="空欄でもOK。⓪の why_for_target をここに置くと事例選びと本文のトーンが寄る",
     )
 
+    # HookHack 戦略目的（③章立てのSEO構成を方向づける）
+    _goal_options = [
+        "（未指定）",
+        "目的1（動画広告PoCでリード獲得）",
+        "目的2（自社実践AI×◯◯でクロスセル）",
+        "両方",
+    ]
+    _saved_goal = state.get("hookhack_goal", "")
+    if "両方" in _saved_goal:
+        _goal_idx = 3
+    elif "目的2" in _saved_goal or _saved_goal.startswith("2"):
+        _goal_idx = 2
+    elif "目的1" in _saved_goal or _saved_goal.startswith("1"):
+        _goal_idx = 1
+    else:
+        _goal_idx = 0
+    hookhack_goal_choice = st.selectbox(
+        "HookHack戦略目的（③章立てのSEO構成を方向づける）",
+        _goal_options,
+        index=_goal_idx,
+        key="_hookhack_goal_input",
+        help="目的1=動画広告PoCリード獲得 / 目的2=自社AI実践クロスセル / 両方=広く射程。⓪のテーマ「→ ①で使う」で自動セットされる。手動編集可",
+    )
+    hookhack_goal = "" if hookhack_goal_choice == "（未指定）" else hookhack_goal_choice
+
     # 編集中フラグ判定（明示保存方式）— キーストロークごとには Supabase に書かない
     dirty = (
         topic != state.get("topic", "")
         or angle_hint != state.get("angle_hint", "")
         or interests_hint != state.get("interests_hint", "")
+        or hookhack_goal != state.get("hookhack_goal", "")
     )
-    save_label = "💾 お題/切り口/関心を保存 *未保存変更あり" if dirty else "💾 お題/切り口/関心を保存"
+    save_label = "💾 お題/切り口/関心/目的を保存 *未保存変更あり" if dirty else "💾 お題/切り口/関心/目的を保存"
     if st.button(save_label, width="stretch", type=("primary" if dirty else "secondary"), disabled=not dirty):
         state["topic"] = topic
         state["angle_hint"] = angle_hint
         state["interests_hint"] = interests_hint
+        state["hookhack_goal"] = hookhack_goal
         storage.save_state(work_date, state)
         st.toast("保存しました", icon="✅")
         st.rerun()
@@ -779,19 +806,29 @@ if mode == "themes":
                     col_use, col_copy = st.columns([1, 1])
                     with col_use:
                         if st.button(
-                            "→ ①で使う（お題/切り口/関心を一括転送）",
+                            "→ ①で使う（お題/切り口/関心/目的を一括転送）",
                             key=f"explore_use_{sel_id}_{i}",
                             type="primary",
                             width="stretch",
-                            help="このテーマのタイトル・切り口・関心をサイドバーのお題欄に転送して①へ移動",
+                            help="このテーマのタイトル・切り口・関心・HookHack目的をサイドバーに転送して①へ移動",
                         ):
                             _s = storage.load_state(work_date)
                             _s["topic"] = t.get("title", "")
                             _s["angle_hint"] = t.get("angle", "")
                             _s["interests_hint"] = t.get("why_for_target", "")
+                            # hookhack_goal を正規化（"目的1" / "目的2" / "両方" / 空）
+                            _raw_goal = (t.get("hookhack_goal") or "").strip()
+                            if "両方" in _raw_goal:
+                                _s["hookhack_goal"] = "両方"
+                            elif "1" in _raw_goal:
+                                _s["hookhack_goal"] = "目的1（動画広告PoCでリード獲得）"
+                            elif "2" in _raw_goal:
+                                _s["hookhack_goal"] = "目的2（自社実践AI×◯◯でクロスセル）"
+                            else:
+                                _s["hookhack_goal"] = ""
                             storage.save_state(work_date, _s)
                             # サイドバーのwidget stateをリセットして新しい値を初期表示させる
-                            for k in ("_topic_input", "_angle_input", "_interests_input"):
+                            for k in ("_topic_input", "_angle_input", "_interests_input", "_hookhack_goal_input"):
                                 st.session_state.pop(k, None)
                             goto("diverge")
                     with col_copy:
@@ -1202,6 +1239,7 @@ elif current_stage == "outline":
                             prompts.outline_prompt(
                                 topic, angle, cases_csv_for_outline,
                                 angle_hint=angle_hint, interests_hint=interests_hint, user_direction=user_direction,
+                                hookhack_goal=hookhack_goal,
                             )
                         )
                         outline_md = persona.sanitize_emoji(outline_md)
@@ -1255,6 +1293,7 @@ elif current_stage == "outline":
                                         topic, outline_md, refine_feedback,
                                         cases_csv=_cases_csv,
                                         angle_hint=angle_hint, interests_hint=interests_hint, user_direction=user_direction,
+                                        hookhack_goal=hookhack_goal,
                                     )
                                 )
                                 new_outline = persona.sanitize_emoji(new_outline)

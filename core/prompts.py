@@ -4,14 +4,20 @@
 from core import persona
 
 HOOKHACK_STRATEGY = """\
-HookHackは広告運用・クリエイティブ制作支援の会社。今回作るコンテンツは、以下2つの戦略目的を**暗黙的に下支え**する必要がある（露骨な広告にする意味ではなく、論点設計・事例選び・結論の誘導先として）。
+HookHackは広告運用・クリエイティブ制作支援の会社。今回作るコンテンツは、以下2つの戦略目的（または両方）を**暗黙的に下支え**する必要がある（露骨な広告にする意味ではなく、論点設計・事例選び・結論の誘導先として）。
 
 ## 目的1：動画広告PoCでリード獲得
-「静止画バナーのみ」の顧客に対し、動画広告PoCで以下5指標の改善差分を見せてリード獲得＆アップセル：
+**静止画バナーのみ運用中の顧客**に対し、動画広告PoCで以下5指標の改善差分を見せてリード獲得＆アップセル：
 フォーム送信数 / サイト訪問数 / 無料制作数 / 有償化数 / 継続数
+→ 構成の方向性: 動画 vs 静止画の比較、CPA/CVR/視聴維持率の差分メカニズム、移行判断の意思決定材料、まずは小さくPoCを回す道筋
 
 ## 目的2：自社実践AI×◯◯の公開でクロスセル
-HookHackの自社内AI活用を事例化して公開、関連業務（SEO / SNS / 広告運用 / LP改善 / CRM運用）への受注拡大を狙う。
+HookHackがどう **自社内でAIを活用** しているかを事例化、関連業務（**SEO / SNS / 広告運用 / LP改善 / CRM運用**）の受注に繋げる。
+→ 構成の方向性: 自社実践コーナーの厚みを出す、AIワークフローのHow-to、関連業務に活きるTipsまで広げる、結論で関連業務支援に着地
+
+## 両方
+上記2つに**同時接続できる射程の広いテーマ**（例: 動画広告制作にAIを取り入れる方法、動画クリエイティブPDCAの自動化など）。
+→ 構成の方向性: 動画広告の論点 + AI活用の論点を両輪で。重点セクションを動画側、自社実践コーナーをAI側に振り分けて両方滲ませる
 
 ## HookHackプロダクトのセールスポイント（記事・投稿で自然に滲み出させる）
 **製品の核となる2機能（PDCAの D/A をAIで高速化）**：
@@ -305,9 +311,59 @@ Markdown以外は出力しない。
 """
 
 
+def _hookhack_goal_block(hookhack_goal: str) -> str:
+    """テーマ選択時に決まった hookhack_goal（目的1 / 目的2 / 両方）を outline 生成時に強調注入する。"""
+    g = (hookhack_goal or "").strip()
+    if not g:
+        return ""
+    if "1" in g and "2" in g:
+        kind = "両方"
+        hint = (
+            "**両方**: 動画広告の論点とAI活用の論点を両輪で。"
+            "重点セクションを動画側（CPA/CVR/視聴維持率）に、自社実践コーナーをAI側"
+            "（SEO/SNS/広告運用/LP改善/CRM運用への応用）に振り分けて両方の戦略目的を滲ませる。"
+            "まとめのCTAは、まずは動画PoCを試す or AI活用支援に相談 のどちらにも繋がる出口にする。"
+        )
+    elif "両方" in g:
+        kind = "両方"
+        hint = (
+            "**両方**: 動画広告の論点とAI活用の論点を両輪で。"
+            "重点セクションを動画側（CPA/CVR/視聴維持率）に、自社実践コーナーをAI側"
+            "（SEO/SNS/広告運用/LP改善/CRM運用への応用）に振り分けて両方の戦略目的を滲ませる。"
+            "まとめのCTAは、まずは動画PoCを試す or AI活用支援に相談 のどちらにも繋がる出口にする。"
+        )
+    elif "1" in g:
+        kind = "目的1（動画広告PoCでリード獲得）"
+        hint = (
+            "**目的1（動画広告PoCでリード獲得）**: 静止画運用中の読者を動画PoCに動かすことを最終ゴールに。"
+            "H2構成は『動画 vs 静止画の差分（メカニズム+数字）』『移行判断の意思決定軸』『PoCの始め方・小さく回す道筋』を中心に。"
+            "自社実践コーナーは動画クリエイティブ制作AIの実例を簡潔に。"
+            "まとめは『まず1パターンだけ動画を回してCPA差分を観測してみる』のような小さな次の一歩を提示。"
+        )
+    elif "2" in g:
+        kind = "目的2（自社実践AI×◯◯でクロスセル）"
+        hint = (
+            "**目的2（自社実践AI×◯◯でクロスセル）**: HookHackがどう自社内でAIを活用しているかを事例化し、"
+            "関連業務（SEO / SNS / 広告運用 / LP改善 / CRM運用）への受注拡大に繋げる。"
+            "H2構成は『AIを使ったワークフロー』『成果の出るAI活用 vs 出ない使い方』『How-to・実装手順』を中心に。"
+            "自社実践コーナーは記事の核として厚めに（500字以上）、具体的なAI活用フロー・ツール名・数字を入れる。"
+            "まとめは関連業務支援への問い合わせを自然な選択肢として滲ませる。"
+        )
+    else:
+        return ""
+    return f"""\
+
+## この記事のHookHack戦略目的（最重要 / SEO構成を決定づける）
+**{kind}**
+
+{hint}
+"""
+
+
 def outline_prompt(
     topic: str, angle_md: str, cases_csv: str = "",
     angle_hint: str = "", interests_hint: str = "", user_direction: str = "",
+    hookhack_goal: str = "",
 ) -> str:
     cases_block = ""
     if cases_csv.strip():
@@ -322,7 +378,7 @@ def outline_prompt(
 {HOOKHACK_STRATEGY}
 
 {persona.blog_block()}
-{_topic_context_block(angle_hint, interests_hint, user_direction)}
+{_topic_context_block(angle_hint, interests_hint, user_direction)}{_hookhack_goal_block(hookhack_goal)}
 ## タスク
 以下の「角度」をもとに、3,000〜6,000字のブログ記事の章立て（outline）をMarkdownで作る。
 
@@ -397,6 +453,7 @@ def outline_refine_prompt(
     angle_hint: str = "",
     interests_hint: str = "",
     user_direction: str = "",
+    hookhack_goal: str = "",
 ) -> str:
     """既存の章立て全体を、ユーザーの指示に沿って作り直す。
     H1（タイトル案）/ リード方向性 / H2構成 / 内容メモ をまとめて見直す。"""
@@ -411,7 +468,7 @@ def outline_refine_prompt(
 {HOOKHACK_STRATEGY}
 
 {persona.blog_block()}
-{_topic_context_block(angle_hint, interests_hint, user_direction)}
+{_topic_context_block(angle_hint, interests_hint, user_direction)}{_hookhack_goal_block(hookhack_goal)}
 ## タスク
 既存の章立てを、ユーザーの再考指示に沿って **全面的に作り直す**。
 H1タイトル案 / リード方向性 / H2セクション構成 / 内容メモ すべてを必要に応じて見直し、
