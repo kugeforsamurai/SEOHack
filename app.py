@@ -508,14 +508,22 @@ if mode == "production":
         or interests_hint != state.get("interests_hint", "")
         or hookhack_goal != state.get("hookhack_goal", "")
     )
-    save_label = "💾 お題/切り口/関心/目的を保存 *未保存変更あり" if dirty else "💾 お題/切り口/関心/目的を保存"
-    if st.button(save_label, width="stretch", type=("primary" if dirty else "secondary"), disabled=not dirty):
+    if dirty:
+        save_label = "💾 お題/切り口/関心/目的を保存 ⚠️ 未保存変更あり"
+        btn_type = "primary"
+    else:
+        save_label = "💾 保存（現在の入力で上書き / 変更なしならno-op）"
+        btn_type = "secondary"
+    if st.button(save_label, width="stretch", type=btn_type, key="_save_topic_angle_interests_goal"):
         state["topic"] = topic
         state["angle_hint"] = angle_hint
         state["interests_hint"] = interests_hint
         state["hookhack_goal"] = hookhack_goal
         storage.save_state(work_date, state)
-        st.toast("保存しました", icon="✅")
+        if dirty:
+            st.toast("保存しました", icon="✅")
+        else:
+            st.toast("変更なし（同内容で上書き保存）", icon="ℹ️")
         st.rerun()
 
     # ②で書く方針メモは state 経由で全ステージから参照（UIは②内）
