@@ -2212,9 +2212,10 @@ elif current_stage == "write":
                             tuple(sorted(_img_id_to_b64.items())),
                         )
 
-                        tab_preview, tab_copy = st.tabs([
+                        tab_preview, tab_copy, tab_gdocs = st.tabs([
                             "🖼️ プレビュー（画像表示）",
-                            "📋 コピー（画像埋め込み済み）",
+                            "📋 コピー（Markdown 画像埋込み）",
+                            "📝 Google Docs用コピー（HTML / 整形保持）",
                         ])
                         with tab_preview:
                             if not _img_id_to_b64:
@@ -2222,8 +2223,8 @@ elif current_stage == "write":
                             st.markdown(blog_md_inline, unsafe_allow_html=True)
                         with tab_copy:
                             st.caption(
-                                "画像が base64 で本文に埋め込まれた版。"
-                                "Notion / Obsidian / Google Docs に貼ってもリンク切れせず画像が残る。"
+                                "画像が base64 で本文に埋め込まれた Markdown。"
+                                "Notion / Obsidian に貼ってもリンク切れせず画像が残る。"
                             )
                             import json as _json
                             _payload_for_copy = _json.dumps(blog_md_inline)
@@ -2235,7 +2236,7 @@ elif current_stage == "write":
                                         this.innerText = '✅ コピー完了';
                                         this.style.background = '#16a34a';
                                         setTimeout(() => {{
-                                            this.innerText = '📋 画像埋め込み版のMarkdownをクリップボードへ';
+                                            this.innerText = '📋 Markdown版をクリップボードへ';
                                             this.style.background = '#2563eb';
                                         }}, 3000);
                                     }}).catch(e => {{ this.innerText = '❌ ' + e.message; }});
@@ -2243,12 +2244,59 @@ elif current_stage == "write":
                                     background: #2563eb; color: white; padding: 12px 20px;
                                     border: none; border-radius: 8px; cursor: pointer;
                                     width: 100%; font-size: 14px; font-weight: 700;
-                                ">📋 画像埋め込み版のMarkdownをクリップボードへ</button>
+                                ">📋 Markdown版をクリップボードへ</button>
                                 </div>
                                 """,
                                 height=72,
                             )
                             st.code(blog_md_inline, language="markdown")
+                        with tab_gdocs:
+                            st.caption(
+                                "**Google Docs / Word / Gmail 用**：MarkdownをHTMLに変換してリッチテキストとしてコピーします。"
+                                "Google Docs に貼り付けると見出し・段落・画像が整形された状態で表示されます。"
+                            )
+                            from core import studio_export as _se
+                            blog_html_inline = _se.md_to_plain_html(blog_md_inline)
+                            import json as _json2
+                            _html_payload = _json2.dumps(blog_html_inline)
+                            _plain_text = blog_md_inline  # フォールバック用
+                            _plain_payload = _json2.dumps(_plain_text)
+                            components.html(
+                                f"""
+                                <div style="padding:8px 0;">
+                                <button onclick="
+                                    (async () => {{
+                                        try {{
+                                            const html = {_html_payload};
+                                            const plain = {_plain_payload};
+                                            const htmlBlob = new Blob([html], {{type: 'text/html'}});
+                                            const textBlob = new Blob([plain], {{type: 'text/plain'}});
+                                            await navigator.clipboard.write([
+                                                new ClipboardItem({{
+                                                    'text/html': htmlBlob,
+                                                    'text/plain': textBlob,
+                                                }})
+                                            ]);
+                                            this.innerText = '✅ HTMLコピー完了 — Google Docs に Cmd+V';
+                                            this.style.background = '#16a34a';
+                                            setTimeout(() => {{
+                                                this.innerText = '📝 Google Docs用にコピー（リッチテキスト）';
+                                                this.style.background = '#16a34a';
+                                            }}, 3500);
+                                        }} catch (e) {{ this.innerText = '❌ ' + e.message; }}
+                                    }})();
+                                " style="
+                                    background: #16a34a; color: white; padding: 12px 20px;
+                                    border: none; border-radius: 8px; cursor: pointer;
+                                    width: 100%; font-size: 14px; font-weight: 700;
+                                ">📝 Google Docs用にコピー（リッチテキスト）</button>
+                                </div>
+                                """,
+                                height=72,
+                            )
+                            st.caption("クリック後、Google Docsを開いて `Cmd+V`（Macなら `⌘+V`）で貼り付け。")
+                            with st.expander("生成されたHTMLを確認（デバッグ）"):
+                                st.code(blog_html_inline, language="html")
 
             _combined_blog_fragment(blog_md, work_date.isoformat())
 

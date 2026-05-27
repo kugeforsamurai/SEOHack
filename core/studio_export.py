@@ -181,6 +181,126 @@ def build_studio_payload(blog_md: str, images: dict[str, str] | None = None) -> 
     }
 
 
+def md_to_plain_html(md: str) -> str:
+    """Google Docs / Word / Notion など汎用エディタへ貼ることを想定した、
+    シンプルな Markdown → HTML 変換。STUDIO向けの H2→H3 変換などは行わない。
+
+    対応: H1〜H3 / 段落 / 太字 / 斜体 / リンク / 画像（data URL or 通常URL）/
+    無秩序リスト / 順序付きリスト / GFMテーブル"""
+    import re as _re
+    lines = md.split("\n")
+    out: list[str] = []
+    i = 0
+    in_ul = False
+    in_ol = False
+    in_table = False
+    table_rows: list[list[str]] = []
+    table_header_done = False
+
+    def _inline(s: str) -> str:
+        # 画像 ![alt](src)
+        s = _re.sub(r"!\[([^\]]*)\]\(([^)]+)\)", r'<img src="\2" alt="\1">', s)
+        # リンク [text](url)
+        s = _re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r'<a href="\2">\1</a>', s)
+        # 太字 **text**
+        s = _re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", s)
+        # 斜体 *text*（**より後で処理）
+        s = _re.sub(r"(?<!\*)\*([^*]+?)\*(?!\*)", r"<em>\1</em>", s)
+        return s
+
+    def _flush_lists():
+        nonlocal in_ul, in_ol
+        if in_ul:
+            out.append("</ul>")
+            in_ul = False
+        if in_ol:
+            out.append("</ol>")
+            in_ol = False
+
+    def _flush_table():
+        nonlocal in_table, table_rows, table_header_done
+        if not in_table:
+            return
+        out.append('<table border="1" cellspacing="0" cellpadding="6">')
+        for ri, row in enumerate(table_rows):
+            tag = "th" if ri == 0 else "td"
+            out.append("<tr>" + "".join(f"<{tag}>{_inline(c.strip())}</{tag}>" for c in row) + "</tr>")
+        out.append("</table>")
+        in_table = False
+        table_rows = []
+        table_header_done = False
+
+    while i < len(lines):
+        line = lines[i]
+        stripped = line.strip()
+
+        # テーブル行
+        if "|" in stripped and stripped.startswith("|") and stripped.endswith("|"):
+            cells = [c for c in stripped.strip("|").split("|")]
+            # 区切り行 (---|---|---) は飛ばす
+            if all(_re.fullmatch(r"\s*:?-+:?\s*", c) for c in cells):
+                table_header_done = True
+                i += 1
+                continue
+            _flush_lists()
+            in_table = True
+            table_rows.append(cells)
+            i += 1
+            continue
+        else:
+            _flush_table()
+
+        # 見出し
+        m = _re.match(r"^(#{1,6})\s+(.*)$", stripped)
+        if m:
+            _flush_lists()
+            level = len(m.group(1))
+            out.append(f"<h{level}>{_inline(m.group(2))}</h{level}>")
+            i += 1
+            continue
+
+        # 順序付きリスト
+        m = _re.match(r"^\d+\.\s+(.*)$", stripped)
+        if m:
+            if in_ul:
+                out.append("</ul>")
+                in_ul = False
+            if not in_ol:
+                out.append("<ol>")
+                in_ol = True
+            out.append(f"<li>{_inline(m.group(1))}</li>")
+            i += 1
+            continue
+
+        # 無秩序リスト
+        m = _re.match(r"^[-*+]\s+(.*)$", stripped)
+        if m:
+            if in_ol:
+                out.append("</ol>")
+                in_ol = False
+            if not in_ul:
+                out.append("<ul>")
+                in_ul = True
+            out.append(f"<li>{_inline(m.group(1))}</li>")
+            i += 1
+            continue
+
+        # 空行
+        if not stripped:
+            _flush_lists()
+            i += 1
+            continue
+
+        # 通常の段落
+        _flush_lists()
+        out.append(f"<p>{_inline(stripped)}</p>")
+        i += 1
+
+    _flush_lists()
+    _flush_table()
+    return "\n".join(out)
+
+
 def build_full_payload(blog_md: str, image_data: list[dict] | None = None) -> dict:
     """全部入りpayload。image_data: [{id, placement, png_bytes}, ...]
 
