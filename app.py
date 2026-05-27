@@ -150,7 +150,7 @@ STAGES = [
     ("diverge", "①発散"),
     ("converge", "②収束"),
     ("outline", "③企画"),
-    ("review", "④画像&レビュー"),
+    ("review", "④レビュー"),
     ("write", "⑤執筆"),
     ("publish", "⑥発信"),
 ]
@@ -1166,7 +1166,7 @@ elif current_stage == "converge":
 elif current_stage == "outline":
     st.header("③企画 — 章立て")
     st.caption("H1（タイトル候補）/ リード文 / H2セクション ごとに分けて編集できます")
-    stage_done_banner("outline", "④画像&レビュー")
+    stage_done_banner("outline", "④レビュー")
 
     angle = storage.load_angle(work_date)
     if not angle:
@@ -1467,7 +1467,7 @@ elif current_stage == "outline":
                     storage.save_outline(work_date, new_md)
                     st.success("保存しました")
             with cn:
-                if st.button("③企画を完了 → ④画像&レビューへ", type="primary", width="stretch"):
+                if st.button("③企画を完了 → ④レビューへ", type="primary", width="stretch"):
                     new_md = outline_parser.serialize_full(new_struct)
                     storage.save_outline(work_date, new_md)
                     storage.mark_stage(work_date, "outline", True)
@@ -1481,11 +1481,11 @@ elif current_stage == "outline":
 
 
 # ============================================================
-# Stage 4 (NEW): 画像&レビュー — 重点セクション + OpenAI画像生成
+# Stage 4: レビュー — 重点セクションのみ（画像は⑤執筆で）
 # ============================================================
 elif current_stage == "review":
-    st.header("④画像&レビュー — 重点セクション + 機能的な図の生成")
-    st.caption("画像はチェックリスト・比較表・プロセスフロー・データチャートに限定。イラスト・装飾画像は生成しません。")
+    st.header("④レビュー — 重点セクションを確認")
+    st.caption("重点セクションを確認・編集します。画像（編集 + 生成）は⑤執筆ステージで本文を見ながら触ります。")
     stage_done_banner("review", "⑤執筆")
 
     angle = storage.load_angle(work_date)
@@ -1598,281 +1598,25 @@ elif current_stage == "review":
                     del st.session_state[k]
             st.rerun()
 
-        # 画像案
+        # 画像案リスト（参考表示のみ・編集と生成は⑤に移動）
         images = review.get("images", [])
         if images:
             st.divider()
-            st.subheader(f"画像案 × {len(images)}")
-            st.info(
-                "💡 **画像の編集はここで、実生成は⑤の本文を書き終わってからがおすすめ**。"
-                "本文中の表現・数字を見てから生成すると整合性が高まります。"
-                "⑤の「全セクションを結合」ボタンの直前に **「📷 画像を生成」** セクションが現れます。"
-                "ここ④で『🎨 OpenAIで生成』を押しても問題ありません（タイミング自由）。"
-            )
+            with st.expander(f"📷 画像案リスト × {len(images)}（参考。編集と生成は⑤執筆へ）", expanded=False):
+                st.caption(
+                    "画像案のメタデータだけ表示しています。"
+                    "**チェックリスト項目・比較表のセル・freeformプロンプトの編集 + OpenAIによる画像生成は ⑤執筆 で行います。**"
+                    "本文書き上がりを見ながら触ると整合性が高まるためです。"
+                )
+                for _i, _img in enumerate(images):
+                    _iid = _img.get("id", f"img_{_i}")
+                    _dt = _img.get("diagram_type") or _img.get("style") or "?"
+                    _pl = _img.get("placement", "")
+                    st.markdown(f"- **`{_iid}`** / 種別: `{_dt}` / 配置: `{_pl}` — {_img.get('purpose', '')}")
 
-            # outline からセクションID → 見出しタイトル のマップを作る（配置の見える化用）
-            _parsed_for_img = outline_parser.parse(outline)
-            _section_title_by_id: dict[str, str] = {}
-            _h2_counter = 0
-            for _s in _parsed_for_img:
-                _section_title_by_id[_s.id] = _s.title
-                if _s.id.startswith("h2_"):
-                    _h2_counter += 1
-            # 特殊セクションの表示用フォールバック
-            _section_title_by_id.setdefault("self_practice", "自社実践")
-            _section_title_by_id.setdefault("summary", "まとめ")
-            _section_title_by_id.setdefault("cta", "次の一歩")
-
-            def _placement_label(placement: str) -> str:
-                """`after:h2_2` → 「📍 H2_2「セクション名」の後」のような表示用ラベル"""
-                if not placement:
-                    return "（未指定）"
-                if placement == "hero":
-                    return "📌 記事冒頭（タイトル直後）"
-                pos_word = ""
-                target = placement
-                if placement.startswith("after:"):
-                    pos_word = "の後"
-                    target = placement.split(":", 1)[1]
-                elif placement.startswith("before:"):
-                    pos_word = "の前"
-                    target = placement.split(":", 1)[1]
-                title = _section_title_by_id.get(target, "")
-                # H2_N 形式に整形
-                disp_id = target.upper() if target.startswith("h2_") else target
-                if title:
-                    return f"📍 {disp_id}「{title}」{pos_word}"
-                return f"📍 {disp_id}{pos_word}"
-
-            updated = []
-            size_options = ["1024x1024", "1024x1536", "1536x1024"]
-
-            for i, img in enumerate(images):
-                img_id = img.get("id", f"img_{i}")
-                img_path = storage.image_path(work_date, img_id)
-                exists = storage.image_exists(work_date, img_id)
-                diagram_type = img.get("diagram_type") or img.get("style") or "?"
-                placement_raw = img.get("placement", "")
-                placement_disp = _placement_label(placement_raw)
-
-                with st.container(border=True):
-                    st.markdown(f"**`{img_id}`**　{placement_disp}　/　種別: `{diagram_type}`")
-                    st.caption(f"配置キー（生）: `{placement_raw or '?'}` / 目的: {img.get('purpose', '')}")
-
-                    cur_size = img.get("size", "1024x1536")
-                    if cur_size not in size_options:
-                        cur_size = "1024x1536"
-
-                    # ---- diagram_type 別の編集UI ----
-                    if diagram_type == "checklist":
-                        st.caption(f"🎨 OpenAI {os.environ.get('OPENAI_IMAGE_MODEL', 'gpt-image-2')} で生成（編集デザイン仕様を内部プロンプトに埋込み）")
-                        cl = img.get("checklist", {"title": "", "items": []})
-                        cl_title = st.text_input(
-                            "チェックリスト タイトル",
-                            value=cl.get("title", ""),
-                            key=f"cl_title_{i}",
-                        )
-                        items_str = "\n".join(cl.get("items", []))
-                        cl_items_text = st.text_area(
-                            "項目（1行=1項目、必要に応じて行を追加・編集）",
-                            value=items_str,
-                            height=260,
-                            key=f"cl_items_{i}",
-                        )
-                        cl_items = [ln.strip() for ln in cl_items_text.split("\n") if ln.strip()]
-                        size = st.selectbox(
-                            "サイズ", size_options, index=size_options.index(cur_size),
-                            key=f"img_size_{i}",
-                        )
-                        quality = st.selectbox(
-                            "品質", ["low", "medium", "high"], index=2,
-                            key=f"img_qual_{i}",
-                        )
-                        st.caption(f"項目数: {len(cl_items)}")
-
-                        col_btn, col_dl = st.columns([1, 1])
-                        with col_btn:
-                            btn_label = "🔁 再生成" if exists else "🎨 OpenAIで生成"
-                            if st.button(
-                                btn_label, key=f"img_gen_{i}",
-                                type="primary" if not exists else "secondary",
-                                disabled=not openai_client.keys_configured() or not cl_items,
-                                width="stretch",
-                            ):
-                                with st.spinner("OpenAI で画像生成中...（30〜60秒）"):
-                                    try:
-                                        prompt_en = prompts.image_prompt_for_checklist(cl_title, cl_items)
-                                        img_bytes = openai_client.generate_image(
-                                            prompt=prompt_en,
-                                            size=size, quality=quality,
-                                        )
-                                        storage.save_image_bytes(work_date, img_id, img_bytes)
-                                        st.success("生成完了")
-                                        st.rerun()
-                                    except Exception as e:
-                                        st.error(f"エラー: {e}")
-                        with col_dl:
-                            if exists:
-                                _img_data = storage.load_image_bytes(work_date, img_id) or b""
-                                st.download_button(
-                                    "ダウンロード", _img_data, file_name=img_path.name,
-                                    mime="image/png", key=f"img_dl_{i}", width="stretch",
-                                )
-
-                        updated.append({
-                            **img, "size": size,
-                            "checklist": {"title": cl_title, "items": cl_items},
-                        })
-
-                    elif diagram_type == "comparison_table":
-                        st.caption(f"🎨 OpenAI {os.environ.get('OPENAI_IMAGE_MODEL', 'gpt-image-2')} で生成（編集デザイン仕様を内部プロンプトに埋込み）")
-                        tb = img.get("table", {"title": "", "cols": [], "rows": []})
-                        tb_title = st.text_input(
-                            "比較表 タイトル",
-                            value=tb.get("title", ""),
-                            key=f"tb_title_{i}",
-                        )
-                        cols_str = ", ".join(tb.get("cols", []))
-                        cols_text = st.text_input(
-                            "列名（カンマ区切り、最初が左端のラベル列）",
-                            value=cols_str,
-                            key=f"tb_cols_{i}",
-                            help="例: 指標, 静止画広告, 動画広告",
-                        )
-                        cols = [c.strip() for c in cols_text.split(",") if c.strip()]
-
-                        if cols:
-                            data = []
-                            for r in tb.get("rows", []):
-                                row_dict = {cols[0]: str(r.get("label", ""))}
-                                values = r.get("values", [])
-                                for j, c in enumerate(cols[1:]):
-                                    row_dict[c] = str(values[j]) if j < len(values) else ""
-                                data.append(row_dict)
-                            df_rows = pd.DataFrame(data, columns=cols)
-                            edited_rows_df = st.data_editor(
-                                df_rows, num_rows="dynamic", width="stretch",
-                                key=f"tb_rows_{i}", height=300,
-                            )
-                            new_rows = []
-                            for _, row in edited_rows_df.iterrows():
-                                label = str(row.get(cols[0], ""))
-                                values = [str(row.get(c, "")) for c in cols[1:]]
-                                if label or any(values):
-                                    new_rows.append({"label": label, "values": values})
-                        else:
-                            st.warning("列名を設定してください")
-                            new_rows = []
-
-                        size = st.selectbox(
-                            "サイズ", size_options,
-                            index=size_options.index(cur_size if cur_size in size_options else "1536x1024"),
-                            key=f"img_size_{i}",
-                        )
-                        quality = st.selectbox(
-                            "品質", ["low", "medium", "high"], index=2,
-                            key=f"img_qual_{i}",
-                        )
-
-                        col_btn, col_dl = st.columns([1, 1])
-                        with col_btn:
-                            btn_label = "🔁 再生成" if exists else "🎨 OpenAIで生成"
-                            if st.button(
-                                btn_label, key=f"img_gen_{i}",
-                                type="primary" if not exists else "secondary",
-                                disabled=not openai_client.keys_configured() or not cols or not new_rows,
-                                width="stretch",
-                            ):
-                                with st.spinner("OpenAI で画像生成中...（30〜60秒）"):
-                                    try:
-                                        prompt_en = prompts.image_prompt_for_table(tb_title, cols, new_rows)
-                                        img_bytes = openai_client.generate_image(
-                                            prompt=prompt_en,
-                                            size=size, quality=quality,
-                                        )
-                                        storage.save_image_bytes(work_date, img_id, img_bytes)
-                                        st.success("生成完了")
-                                        st.rerun()
-                                    except Exception as e:
-                                        st.error(f"エラー: {e}")
-                        with col_dl:
-                            if exists:
-                                _img_data = storage.load_image_bytes(work_date, img_id) or b""
-                                st.download_button(
-                                    "ダウンロード", _img_data, file_name=img_path.name,
-                                    mime="image/png", key=f"img_dl_{i}", width="stretch",
-                                )
-
-                        updated.append({
-                            **img, "size": size,
-                            "table": {"title": tb_title, "cols": cols, "rows": new_rows},
-                        })
-
-                    else:
-                        # process_flow / data_chart など → OpenAI 経由
-                        st.caption("🎨 OpenAI gpt-image-1 で生成（プロンプトは日本語OK、画像内の文字も自動で日本語化）")
-                        col_p, col_c = st.columns([2, 1])
-                        with col_p:
-                            prompt_user = st.text_area(
-                                "プロンプト（日本語OK、編集可）",
-                                value=img.get("prompt_en", ""),
-                                height=140,
-                                key=f"img_prompt_{i}",
-                                help="図の構成・ラベル名・矢印関係などを日本語で記述。デザイン仕様と日本語化指示はシステム側で自動で付加されます。",
-                            )
-                        with col_c:
-                            size = st.selectbox(
-                                "サイズ", size_options,
-                                index=size_options.index(cur_size if cur_size in size_options else "1536x1024"),
-                                key=f"img_size_{i}",
-                            )
-                            quality = st.selectbox(
-                                "品質", ["low", "medium", "high"], index=2,
-                                key=f"img_qual_{i}",
-                            )
-
-                        col_btn, col_dl = st.columns([1, 1])
-                        with col_btn:
-                            btn_label = "🔁 再生成" if exists else "🎨 OpenAIで生成"
-                            if st.button(
-                                btn_label, key=f"img_gen_{i}",
-                                type="primary" if not exists else "secondary",
-                                disabled=not openai_client.keys_configured(), width="stretch",
-                            ):
-                                with st.spinner("OpenAIで画像生成中...（10〜30秒）"):
-                                    try:
-                                        wrapped_prompt = prompts.image_prompt_wrap_for_freeform(prompt_user)
-                                        img_bytes = openai_client.generate_image(
-                                            prompt=wrapped_prompt,
-                                            size=size, quality=quality,
-                                        )
-                                        storage.save_image_bytes(work_date, img_id, img_bytes)
-                                        st.success("生成完了")
-                                        st.rerun()
-                                    except Exception as e:
-                                        st.error(f"エラー: {e}")
-                        with col_dl:
-                            if exists:
-                                _img_data = storage.load_image_bytes(work_date, img_id) or b""
-                                st.download_button(
-                                    "ダウンロード", _img_data, file_name=img_path.name,
-                                    mime="image/png", key=f"img_dl_{i}", width="stretch",
-                                )
-
-                        updated.append({**img, "size": size, "prompt_en": prompt_user})
-
-                    if exists:
-                        _disp_bytes = storage.load_image_bytes(work_date, img_id)
-                        if _disp_bytes:
-                            st.image(_disp_bytes, width="stretch")
-
-            if st.button("画像案を保存（編集内容を反映）"):
-                review["images"] = updated
-                storage.save_review(work_date, review)
-                st.success("保存しました")
 
         st.divider()
-        if st.button("④画像&レビューを完了 → ⑤執筆へ", type="primary"):
+        if st.button("④レビューを完了 → ⑤執筆へ", type="primary"):
             storage.mark_stage(work_date, "review", True)
             goto("write")
 
@@ -2103,75 +1847,199 @@ elif current_stage == "write":
                 angle_hint, interests_hint, user_direction,
             )
 
-        # ---- 📷 画像生成（④で設計済みの画像案を本文書き上がり後に生成） ----
-        review_for_imgs_in_write = storage.load_review(work_date)
-        _imgs_to_gen = review_for_imgs_in_write.get("images", [])
-        if _imgs_to_gen:
+        # ---- 📷 画像（編集 + 生成）— 本文書き上がり後にここで触る ----
+        images = review.get("images", [])
+        if images:
             st.divider()
-            st.subheader("📷 画像を生成（本文に合わせて）")
+            st.subheader(f"📷 画像（編集 + 生成） × {len(images)}")
             st.caption(
-                "④で設計した画像案を、本文を書き上がってから生成します。"
-                "本文中の表現・数字を確認したうえで生成すると、本文との整合性が高まります。"
-                "**詳細な編集（チェックリスト項目・比較表のセル・freeformプロンプト）は④側で**行ってください。"
+                "④（レビュー）で出した画像案を、本文を書き上がってから編集・生成します。"
+                "本文中の表現・数字を見ながら触ると整合性が高まります。"
             )
 
-            @st.fragment
-            def _post_write_image_gen_fragment(_work_date_str: str):
-                """⑤本文書き上がり後の画像生成。④で設計したspecを使ってOpenAIを呼ぶだけ。"""
-                from datetime import date as _date
-                _wd = _date.fromisoformat(_work_date_str)
-                _review = storage.load_review(_wd)
-                _imgs = _review.get("images", [])
-                for _idx, _img in enumerate(_imgs):
-                    _iid = _img.get("id", f"img_{_idx}")
-                    _dtype = _img.get("diagram_type") or _img.get("style") or "?"
-                    _placement = _img.get("placement", "")
-                    _exists = storage.image_exists(_wd, _iid)
-                    _size = _img.get("size", "1024x1536")
-                    _quality = "high"
+            # outline からセクションID → 見出しタイトル のマップを作る（配置の見える化用）
+            _parsed_for_img = outline_parser.parse(outline)
+            _section_title_by_id: dict[str, str] = {}
+            for _s in _parsed_for_img:
+                _section_title_by_id[_s.id] = _s.title
+            _section_title_by_id.setdefault("self_practice", "自社実践")
+            _section_title_by_id.setdefault("summary", "まとめ")
+            _section_title_by_id.setdefault("cta", "次の一歩")
 
-                    with st.container(border=True):
-                        col_meta, col_btn = st.columns([3, 1])
-                        with col_meta:
-                            st.markdown(f"**`{_iid}`** / 種別: `{_dtype}` / 配置: `{_placement}`")
-                            st.caption(f"目的: {_img.get('purpose', '')}")
+            def _placement_label(placement: str) -> str:
+                if not placement:
+                    return "（未指定）"
+                if placement == "hero":
+                    return "📌 記事冒頭（タイトル直後）"
+                pos_word = ""
+                target = placement
+                if placement.startswith("after:"):
+                    pos_word = "の後"
+                    target = placement.split(":", 1)[1]
+                elif placement.startswith("before:"):
+                    pos_word = "の前"
+                    target = placement.split(":", 1)[1]
+                title_t = _section_title_by_id.get(target, "")
+                disp_id = target.upper() if target.startswith("h2_") else target
+                if title_t:
+                    return f"📍 {disp_id}「{title_t}」{pos_word}"
+                return f"📍 {disp_id}{pos_word}"
+
+            updated = []
+            size_options = ["1024x1024", "1024x1536", "1536x1024"]
+
+            for i, img in enumerate(images):
+                img_id = img.get("id", f"img_{i}")
+                img_path = storage.image_path(work_date, img_id)
+                exists = storage.image_exists(work_date, img_id)
+                diagram_type = img.get("diagram_type") or img.get("style") or "?"
+                placement_raw = img.get("placement", "")
+                placement_disp = _placement_label(placement_raw)
+
+                with st.container(border=True):
+                    st.markdown(f"**`{img_id}`**　{placement_disp}　/　種別: `{diagram_type}`")
+                    st.caption(f"配置キー（生）: `{placement_raw or '?'}` / 目的: {img.get('purpose', '')}")
+
+                    cur_size = img.get("size", "1024x1536")
+                    if cur_size not in size_options:
+                        cur_size = "1024x1536"
+
+                    if diagram_type == "checklist":
+                        st.caption(f"🎨 OpenAI {os.environ.get('OPENAI_IMAGE_MODEL', 'gpt-image-2')} で生成")
+                        cl = img.get("checklist", {"title": "", "items": []})
+                        cl_title = st.text_input(
+                            "チェックリスト タイトル", value=cl.get("title", ""), key=f"cl_title_{i}",
+                        )
+                        items_str = "\n".join(cl.get("items", []))
+                        cl_items_text = st.text_area(
+                            "項目（1行=1項目）", value=items_str, height=260, key=f"cl_items_{i}",
+                        )
+                        cl_items = [ln.strip() for ln in cl_items_text.split("\n") if ln.strip()]
+                        size = st.selectbox("サイズ", size_options, index=size_options.index(cur_size), key=f"img_size_{i}")
+                        quality = st.selectbox("品質", ["low", "medium", "high"], index=2, key=f"img_qual_{i}")
+                        st.caption(f"項目数: {len(cl_items)}")
+
+                        col_btn, col_dl = st.columns([1, 1])
                         with col_btn:
-                            _label = "🔁 再生成" if _exists else "🎨 生成"
+                            btn_label = "🔁 再生成" if exists else "🎨 OpenAIで生成"
                             if st.button(
-                                _label, key=f"post_gen_{_iid}",
-                                type=("secondary" if _exists else "primary"),
+                                btn_label, key=f"img_gen_{i}",
+                                type="primary" if not exists else "secondary",
+                                disabled=not openai_client.keys_configured() or not cl_items,
                                 width="stretch",
-                                disabled=not openai_client.keys_configured(),
                             ):
-                                with st.spinner(f"OpenAI で {_iid} を生成中…"):
+                                with st.spinner("OpenAI で画像生成中...（30〜60秒）"):
                                     try:
-                                        if _dtype == "checklist":
-                                            _cl = _img.get("checklist", {})
-                                            _items = [x for x in _cl.get("items", []) if x and x.strip()]
-                                            _prompt = prompts.image_prompt_for_checklist(_cl.get("title", ""), _items)
-                                        elif _dtype == "comparison_table":
-                                            _tb = _img.get("table", {})
-                                            _prompt = prompts.image_prompt_for_table(
-                                                _tb.get("title", ""),
-                                                _tb.get("cols", []),
-                                                _tb.get("rows", []),
-                                            )
-                                        else:
-                                            _prompt = prompts.image_prompt_wrap_for_freeform(_img.get("prompt_en", ""))
-                                        _bytes = openai_client.generate_image(
-                                            prompt=_prompt, size=_size, quality=_quality,
-                                        )
-                                        storage.save_image_bytes(_wd, _iid, _bytes)
+                                        prompt_en = prompts.image_prompt_for_checklist(cl_title, cl_items)
+                                        img_bytes = openai_client.generate_image(prompt=prompt_en, size=size, quality=quality)
+                                        storage.save_image_bytes(work_date, img_id, img_bytes)
                                         st.success("生成完了")
                                         st.rerun()
                                     except Exception as e:
                                         st.error(f"エラー: {e}")
-                        if _exists:
-                            _disp = storage.load_image_bytes(_wd, _iid)
-                            if _disp:
-                                st.image(_disp, width=240)
+                        with col_dl:
+                            if exists:
+                                _img_data = storage.load_image_bytes(work_date, img_id) or b""
+                                st.download_button("ダウンロード", _img_data, file_name=img_path.name, mime="image/png", key=f"img_dl_{i}", width="stretch")
+                        updated.append({**img, "size": size, "checklist": {"title": cl_title, "items": cl_items}})
 
-            _post_write_image_gen_fragment(work_date.isoformat())
+                    elif diagram_type == "comparison_table":
+                        st.caption(f"🎨 OpenAI {os.environ.get('OPENAI_IMAGE_MODEL', 'gpt-image-2')} で生成")
+                        tb = img.get("table", {"title": "", "cols": [], "rows": []})
+                        tb_title = st.text_input("比較表 タイトル", value=tb.get("title", ""), key=f"tb_title_{i}")
+                        cols_str = ", ".join(tb.get("cols", []))
+                        cols_text = st.text_input("列名（カンマ区切り）", value=cols_str, key=f"tb_cols_{i}", help="例: 指標, 静止画広告, 動画広告")
+                        cols = [c.strip() for c in cols_text.split(",") if c.strip()]
+                        if cols:
+                            data = []
+                            for r in tb.get("rows", []):
+                                row_dict = {cols[0]: str(r.get("label", ""))}
+                                values = r.get("values", [])
+                                for j, c in enumerate(cols[1:]):
+                                    row_dict[c] = str(values[j]) if j < len(values) else ""
+                                data.append(row_dict)
+                            df_rows = pd.DataFrame(data, columns=cols)
+                            edited_rows_df = st.data_editor(df_rows, num_rows="dynamic", width="stretch", key=f"tb_rows_{i}", height=300)
+                            new_rows = []
+                            for _, row in edited_rows_df.iterrows():
+                                label = str(row.get(cols[0], ""))
+                                values = [str(row.get(c, "")) for c in cols[1:]]
+                                if label or any(values):
+                                    new_rows.append({"label": label, "values": values})
+                        else:
+                            st.warning("列名を設定してください")
+                            new_rows = []
+                        size = st.selectbox("サイズ", size_options, index=size_options.index(cur_size if cur_size in size_options else "1536x1024"), key=f"img_size_{i}")
+                        quality = st.selectbox("品質", ["low", "medium", "high"], index=2, key=f"img_qual_{i}")
+
+                        col_btn, col_dl = st.columns([1, 1])
+                        with col_btn:
+                            btn_label = "🔁 再生成" if exists else "🎨 OpenAIで生成"
+                            if st.button(
+                                btn_label, key=f"img_gen_{i}",
+                                type="primary" if not exists else "secondary",
+                                disabled=not openai_client.keys_configured() or not cols or not new_rows,
+                                width="stretch",
+                            ):
+                                with st.spinner("OpenAI で画像生成中...（30〜60秒）"):
+                                    try:
+                                        prompt_en = prompts.image_prompt_for_table(tb_title, cols, new_rows)
+                                        img_bytes = openai_client.generate_image(prompt=prompt_en, size=size, quality=quality)
+                                        storage.save_image_bytes(work_date, img_id, img_bytes)
+                                        st.success("生成完了")
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"エラー: {e}")
+                        with col_dl:
+                            if exists:
+                                _img_data = storage.load_image_bytes(work_date, img_id) or b""
+                                st.download_button("ダウンロード", _img_data, file_name=img_path.name, mime="image/png", key=f"img_dl_{i}", width="stretch")
+                        updated.append({**img, "size": size, "table": {"title": tb_title, "cols": cols, "rows": new_rows}})
+
+                    else:
+                        st.caption("🎨 OpenAI gpt-image-1 で生成（プロンプトは日本語OK、画像内の文字も自動で日本語化）")
+                        col_p, col_c = st.columns([2, 1])
+                        with col_p:
+                            prompt_user = st.text_area(
+                                "プロンプト（日本語OK、編集可）", value=img.get("prompt_en", ""),
+                                height=140, key=f"img_prompt_{i}",
+                                help="図の構成・ラベル名・矢印関係などを日本語で記述。デザイン仕様と日本語化指示はシステム側で自動で付加されます。",
+                            )
+                        with col_c:
+                            size = st.selectbox("サイズ", size_options, index=size_options.index(cur_size if cur_size in size_options else "1536x1024"), key=f"img_size_{i}")
+                            quality = st.selectbox("品質", ["low", "medium", "high"], index=2, key=f"img_qual_{i}")
+                        col_btn, col_dl = st.columns([1, 1])
+                        with col_btn:
+                            btn_label = "🔁 再生成" if exists else "🎨 OpenAIで生成"
+                            if st.button(
+                                btn_label, key=f"img_gen_{i}",
+                                type="primary" if not exists else "secondary",
+                                disabled=not openai_client.keys_configured(), width="stretch",
+                            ):
+                                with st.spinner("OpenAIで画像生成中...（10〜30秒）"):
+                                    try:
+                                        wrapped_prompt = prompts.image_prompt_wrap_for_freeform(prompt_user)
+                                        img_bytes = openai_client.generate_image(prompt=wrapped_prompt, size=size, quality=quality)
+                                        storage.save_image_bytes(work_date, img_id, img_bytes)
+                                        st.success("生成完了")
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"エラー: {e}")
+                        with col_dl:
+                            if exists:
+                                _img_data = storage.load_image_bytes(work_date, img_id) or b""
+                                st.download_button("ダウンロード", _img_data, file_name=img_path.name, mime="image/png", key=f"img_dl_{i}", width="stretch")
+                        updated.append({**img, "size": size, "prompt_en": prompt_user})
+
+                    if exists:
+                        _disp_bytes = storage.load_image_bytes(work_date, img_id)
+                        if _disp_bytes:
+                            st.image(_disp_bytes, width="stretch")
+
+            if st.button("画像案を保存（編集内容を反映）", key="save_images_in_write"):
+                review["images"] = updated
+                storage.save_review(work_date, review)
+                st.success("保存しました")
 
         st.divider()
         c_save, c_assemble = st.columns([1, 2])
