@@ -1447,6 +1447,7 @@ elif current_stage == "outline":
                     )
 
                     # ---- 具体例チェック: 数字 + cases.csv の社名 が含まれるか ----
+                    # 方針: H2に合う事例があれば◎、合わない場合は理論深掘りもOK（ペナルティではない）
                     import re as _re_chk
                     _has_number = bool(_re_chk.search(r"\d", sec_memo))
                     _case_names_in_memo: list[str] = []
@@ -1463,23 +1464,23 @@ elif current_stage == "outline":
                         st.caption(
                             f"✅ 具体例チェック: 数字あり / 事例社名「{_case_names_in_memo[0]}"
                             + (f"」他{len(_case_names_in_memo) - 1}件" if len(_case_names_in_memo) > 1 else "」")
-                            + f" — cases.csv と整合"
+                            + " — cases.csv と整合"
                         )
                     elif _has_number and not _case_names_in_memo:
                         st.caption(
-                            f"⚠️ 具体例チェック: 数字あり / **事例社名が cases.csv と一致しない** — "
-                            "ハルシネーション or 抽象数字の可能性。本文化前に固有名詞も明記推奨"
+                            "⚠️ 具体例チェック: 数字あり / **事例社名が cases.csv と一致しない** — "
+                            "ハルシネーション疑い。社名を cases.csv の表記に揃える or 数字の出所を明確に"
                         )
                     elif not _has_number and _case_names_in_memo:
                         st.caption(
-                            f"⚠️ 具体例チェック: 事例社名「{_case_names_in_memo[0]}」あり / **数字が見当たらない** — "
-                            "結果_数字（CTR/CVR/CPA/ROAS等）も含めると説得力UP"
+                            f"ℹ️ 具体例チェック: 事例社名「{_case_names_in_memo[0]}」あり / 数字なし — "
+                            "数字が無くてもH2の論点が成立するなら理論深掘りで進めてOK"
                         )
                     else:
                         if _case_names_pool:
                             st.caption(
-                                "⚠️ 具体例チェック: **数字も事例社名も無い**（抽象論のみ）— "
-                                "cases.csv から「誰が／何をして／結果_数字」を1〜2件引用すると◎"
+                                "ℹ️ 具体例チェック: 数字・事例社名なし（理論深掘り型）— "
+                                "H2の論点に**合う事例があれば**引用、無理なら**メカニズム・原理の詳述**でOK"
                             )
                         else:
                             st.caption("ℹ️ 具体例チェック: cases.csv に事例がまだないため自動検証スキップ")
