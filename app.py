@@ -1446,6 +1446,44 @@ elif current_stage == "outline":
                         key=f"out_sec_memo_{idx}",
                     )
 
+                    # ---- 具体例チェック: 数字 + cases.csv の社名 が含まれるか ----
+                    import re as _re_chk
+                    _has_number = bool(_re_chk.search(r"\d", sec_memo))
+                    _case_names_in_memo: list[str] = []
+                    _case_names_pool: list[str] = []
+                    if not cases_df.empty and "誰が" in cases_df.columns:
+                        for _name in cases_df["誰が"].dropna().astype(str):
+                            _name = _name.strip()
+                            if not _name:
+                                continue
+                            _case_names_pool.append(_name)
+                            if _name in sec_memo:
+                                _case_names_in_memo.append(_name)
+                    if _has_number and _case_names_in_memo:
+                        st.caption(
+                            f"✅ 具体例チェック: 数字あり / 事例社名「{_case_names_in_memo[0]}"
+                            + (f"」他{len(_case_names_in_memo) - 1}件" if len(_case_names_in_memo) > 1 else "」")
+                            + f" — cases.csv と整合"
+                        )
+                    elif _has_number and not _case_names_in_memo:
+                        st.caption(
+                            f"⚠️ 具体例チェック: 数字あり / **事例社名が cases.csv と一致しない** — "
+                            "ハルシネーション or 抽象数字の可能性。本文化前に固有名詞も明記推奨"
+                        )
+                    elif not _has_number and _case_names_in_memo:
+                        st.caption(
+                            f"⚠️ 具体例チェック: 事例社名「{_case_names_in_memo[0]}」あり / **数字が見当たらない** — "
+                            "結果_数字（CTR/CVR/CPA/ROAS等）も含めると説得力UP"
+                        )
+                    else:
+                        if _case_names_pool:
+                            st.caption(
+                                "⚠️ 具体例チェック: **数字も事例社名も無い**（抽象論のみ）— "
+                                "cases.csv から「誰が／何をして／結果_数字」を1〜2件引用すると◎"
+                            )
+                        else:
+                            st.caption("ℹ️ 具体例チェック: cases.csv に事例がまだないため自動検証スキップ")
+
                     if up_clicked:
                         _move_section(idx, idx - 1)
                     if down_clicked:
