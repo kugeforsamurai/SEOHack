@@ -1943,6 +1943,66 @@ elif current_stage == "write":
                 "本文中の表現・数字を見ながら触ると整合性が高まります。"
             )
 
+            # ---- 🔁 画像案を再考（Geminiに指示） ----
+            with st.expander("🔁 画像案を再考（Geminiに指示）", expanded=False):
+                st.caption(
+                    "本文を書き上がった状態で、画像案リスト全体を作り直します。"
+                    "「process_flow を1つ追加して」「比較表をROAS中心に絞って」「不要な画像を減らして」など、"
+                    "自然言語で指示。重点セクションは触らず、画像案だけが置き換わります。"
+                )
+                img_refine_feedback = st.text_area(
+                    "再考指示",
+                    placeholder=(
+                        "例: 本文に静止画と動画のCPA差分の数字が多いので、"
+                        "それを軸にした比較表を1枚に絞り、checklist は実装ステップ重視で作り直して。"
+                    ),
+                    height=120,
+                    key="img_refine_feedback",
+                    label_visibility="collapsed",
+                )
+                if st.button(
+                    "この指示で画像案を作り直す",
+                    key="img_refine_btn",
+                    type="primary",
+                    width="stretch",
+                ):
+                    if not img_refine_feedback.strip():
+                        st.warning("再考指示を入力してください")
+                    else:
+                        with st.spinner("Geminiが画像案を再考中…（30〜60秒）"):
+                            try:
+                                import json as _json_ir
+                                _current_imgs_json = _json_ir.dumps(
+                                    images, ensure_ascii=False, indent=2
+                                )
+                                _current_blog = storage.load_blog(work_date) or ""
+                                new_images = gemini_client.generate_json(
+                                    prompts.image_refine_prompt(
+                                        topic, outline, _current_blog,
+                                        _current_imgs_json, img_refine_feedback,
+                                        angle_hint=angle_hint,
+                                        interests_hint=interests_hint,
+                                        user_direction=user_direction,
+                                    )
+                                )
+                                # 配列で返ってきたか確認
+                                if isinstance(new_images, dict) and "images" in new_images:
+                                    new_images = new_images["images"]
+                                if not isinstance(new_images, list):
+                                    st.error(f"想定外の出力: {type(new_images).__name__}")
+                                else:
+                                    review["images"] = new_images
+                                    storage.save_review(work_date, review)
+                                    storage.snapshot_original(storage.review_path(work_date))
+                                    # 画像案ごとの編集 widget state を再構築させる
+                                    for k in list(st.session_state.keys()):
+                                        if k.startswith(("cl_", "tb_", "img_prompt_", "img_size_", "img_qual_")):
+                                            del st.session_state[k]
+                                    st.success(f"画像案を {len(new_images)} 件で再生成しました")
+                                    st.rerun()
+                            except Exception as e:
+                                st.error(f"エラー: {e}")
+
             # outline からセクションID → 見出しタイトル のマップを作る（配置の見える化用）
             _parsed_for_img = outline_parser.parse(outline)
             _section_title_by_id: dict[str, str] = {}

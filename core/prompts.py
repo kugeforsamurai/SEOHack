@@ -705,6 +705,94 @@ CRITICAL REQUIREMENTS:
 """
 
 
+def image_refine_prompt(
+    topic: str, outline_md: str, blog_md: str,
+    current_images_json: str, user_feedback: str,
+    angle_hint: str = "", interests_hint: str = "", user_direction: str = "",
+) -> str:
+    """⑤本文書き上がり後に、画像案リストだけをユーザー指示で再考させる。
+    重点セクション (key_sections) は触らず、images 配列のみを返す。"""
+    return f"""\
+{HOOKHACK_STRATEGY}
+
+{persona.blog_block()}
+{_topic_context_block(angle_hint, interests_hint, user_direction)}
+
+## タスク
+既存の画像案リストを、ユーザーの再考指示に沿って **作り直す**。
+**重点セクション(key_sections)は触らない**。**画像案リスト(images配列)のみ** を返す。
+
+## お題
+{topic}
+
+## 章立て (outline)
+{outline_md}
+
+## 実際に書き上がった本文 (blog.md) — この内容に整合する画像案にする
+{blog_md}
+
+## 現在の画像案（修正対象）
+{current_images_json}
+
+## ユーザーの再考指示（最優先で反映）
+{user_feedback}
+
+## 守るべきこと
+- **本文の内容に直接的に整合する画像案にする**（章タイトルだけでなく、本文中の数字・固有名詞・対立概念・手順を踏まえる）
+- diagram_type は `checklist` / `comparison_table` / `process_flow` / `data_chart` のみ
+- 「まとめ」セクション(summary)向けに `checklist` を1枚は維持する（記事の核アクション7〜12個）
+- 本文中に対立概念が登場するなら `comparison_table` を1枚（5〜10行、対比指標）
+- 不要なら image を削減してもOK。価値ある図だけ
+- イラスト・装飾画像・写真・人物・抽象アートは禁止
+- placement の section_id は outline 内の `### H2_N:` を h2_1, h2_2 ... と呼び、`### 自社実践` は self_practice、`### まとめ` は summary、`### CTA` は cta
+- 既存の画像IDは、内容を保持するなら維持。差し替え/新規追加する場合は新IDで（id衝突回避）
+
+## 出力フォーマット
+以下のJSON配列のみを返す（key_sections は出力しない）：
+```json
+[
+  {{
+    "id": "summary_checklist",
+    "diagram_type": "checklist",
+    "placement": "after:summary",
+    "purpose": "...",
+    "size": "1024x1536",
+    "checklist": {{
+      "title": "...",
+      "items": ["...", "...", ...]
+    }}
+  }},
+  {{
+    "id": "static_vs_video",
+    "diagram_type": "comparison_table",
+    "placement": "after:h2_2",
+    "purpose": "...",
+    "size": "1536x1024",
+    "table": {{
+      "title": "...",
+      "cols": ["指標", "A", "B"],
+      "rows": [
+        {{"label": "...", "values": ["...", "..."]}},
+        ...
+      ]
+    }}
+  }},
+  /* process_flow / data_chart の場合は prompt_en（日本語OK）を入れる */
+  {{
+    "id": "...",
+    "diagram_type": "process_flow",
+    "placement": "after:h2_3",
+    "purpose": "...",
+    "size": "1536x1024",
+    "prompt_en": "..."
+  }}
+]
+```
+
+JSON配列のみ出力。前置き・コードフェンス禁止。
+"""
+
+
 def review_and_images_prompt(
     topic: str, outline_md: str, angle_md: str,
     angle_hint: str = "", interests_hint: str = "", user_direction: str = "",
