@@ -1584,7 +1584,7 @@ elif current_stage == "review":
 
         col_gen, col_info = st.columns([1, 2])
         with col_gen:
-            if st.button("Geminiで重点セクション+画像案を提案", type="primary", width="stretch"):
+            if st.button("Geminiで重点セクションを提案", type="primary", width="stretch", help="画像案は⑤本文書き上がり後に本文ベースで別途提案する設計"):
                 with st.spinner("Geminiが提案中..."):
                     try:
                         review = gemini_client.generate_json(
@@ -2352,16 +2352,26 @@ elif current_stage == "write":
 
             _combined_blog_fragment(blog_md, work_date.isoformat())
 
-            # ---- 🔁 画像案を再考（記事完成後のみ表示） ----
+            # ---- 📷 画像案を本文から提案（初回 + 再考、blog_md完成後のみ表示） ----
             st.divider()
-            st.subheader("🔁 画像案を再考（記事完成後）")
-            st.caption(
-                "結合後の本文を踏まえて、画像案リスト全体を Gemini に作り直させます。"
-                "1記事 3枚程度、種類を多様に（checklist / comparison_table / process_flow / data_chart）。"
-                "重点セクションは触らず、画像案だけが置き換わります。再生成後は ⑤上部の「📷 画像（編集 + 生成）」で画像を作り直してください。"
-            )
+            _existing_imgs = review.get("images", [])
+            _is_initial = not _existing_imgs
+            if _is_initial:
+                st.subheader("📷 画像案を本文から提案（初回）")
+                st.caption(
+                    "結合後の本文を踏まえて、Gemini が画像案を初回提案します。"
+                    "1記事 3枚程度、種類を多様に（checklist / comparison_table / process_flow / data_chart）。"
+                    "下の指示欄は空でもOK（空ならAIに完全に任せる）。"
+                )
+            else:
+                st.subheader(f"📷 画像案を再考（現在{len(_existing_imgs)}件）")
+                st.caption(
+                    "本文を踏まえて画像案リスト全体を作り直し。"
+                    "1記事 3枚程度、種類を多様に。重点セクションは触らず画像案だけ置き換わります。"
+                )
+
             img_refine_feedback = st.text_area(
-                "再考指示",
+                "再考指示（初回は空でもOK / 入れるとその方向に作る）",
                 placeholder=(
                     "例: 比較表よりも process_flow を入れたい。CPA改善までの手順を視覚化。"
                     "現在の static_vs_video の比較表を process_flow に置き換えて、"
@@ -2371,45 +2381,50 @@ elif current_stage == "write":
                 key="img_refine_feedback_after_blog",
                 label_visibility="collapsed",
             )
+            _btn_label = (
+                "📷 本文から画像案を初回提案" if _is_initial else "🔁 この指示で画像案を作り直す"
+            )
             if st.button(
-                "この指示で画像案を作り直す",
+                _btn_label,
                 key="img_refine_btn_after_blog",
                 type="primary",
                 width="stretch",
             ):
-                if not img_refine_feedback.strip():
-                    st.warning("再考指示を入力してください")
-                else:
-                    with st.spinner("Geminiが画像案を再考中…（30〜60秒）"):
-                        try:
-                            import json as _json_ir
-                            _current_imgs_json = _json_ir.dumps(
-                                review.get("images", []), ensure_ascii=False, indent=2
+                with st.spinner("Geminiが画像案を生成中…（30〜60秒）"):
+                    try:
+                        import json as _json_ir
+                        _current_imgs_json = _json_ir.dumps(
+                            _existing_imgs, ensure_ascii=False, indent=2
+                        )
+                        # 初回かつ指示空なら「本文を踏まえて多様な画像案を提案して」とフォールバック
+                        _feedback = img_refine_feedback.strip() or (
+                            "初回提案。本文の内容を踏まえて、画像案を多様な種類で3枚程度提案してください。"
+                            if _is_initial else "リスト全体を再考してください。"
+                        )
+                        new_images = gemini_client.generate_json(
+                            prompts.image_refine_prompt(
+                                topic, outline, blog_md,
+                                _current_imgs_json, _feedback,
+                                angle_hint=angle_hint,
+                                interests_hint=interests_hint,
+                                user_direction=user_direction,
                             )
-                            new_images = gemini_client.generate_json(
-                                prompts.image_refine_prompt(
-                                    topic, outline, blog_md,
-                                    _current_imgs_json, img_refine_feedback,
-                                    angle_hint=angle_hint,
-                                    interests_hint=interests_hint,
-                                    user_direction=user_direction,
-                                )
-                            )
-                            if isinstance(new_images, dict) and "images" in new_images:
-                                new_images = new_images["images"]
-                            if not isinstance(new_images, list):
-                                st.error(f"想定外の出力: {type(new_images).__name__}")
-                            else:
-                                review["images"] = new_images
-                                storage.save_review(work_date, review)
-                                storage.snapshot_original(storage.review_path(work_date))
-                                for k in list(st.session_state.keys()):
-                                    if k.startswith(("cl_", "tb_", "img_prompt_", "img_size_", "img_qual_")):
-                                        del st.session_state[k]
-                                st.success(f"画像案を {len(new_images)} 件で再生成しました。⑤上部の「📷 画像（編集 + 生成）」で画像を作り直してください。")
-                                st.rerun()
-                        except Exception as e:
-                            st.error(f"エラー: {e}")
+                        )
+                        if isinstance(new_images, dict) and "images" in new_images:
+                            new_images = new_images["images"]
+                        if not isinstance(new_images, list):
+                            st.error(f"想定外の出力: {type(new_images).__name__}")
+                        else:
+                            review["images"] = new_images
+                            storage.save_review(work_date, review)
+                            storage.snapshot_original(storage.review_path(work_date))
+                            for k in list(st.session_state.keys()):
+                                if k.startswith(("cl_", "tb_", "img_prompt_", "img_size_", "img_qual_")):
+                                    del st.session_state[k]
+                            st.success(f"画像案を {len(new_images)} 件で生成しました。⑤上部の「📷 画像（編集 + 生成）」で画像を作り直してください。")
+                            st.rerun()
+                    except Exception as e:
+                        st.error(f"エラー: {e}")
 
         # ---- X投稿5本 ----
         st.divider()

@@ -799,6 +799,7 @@ def review_and_images_prompt(
     topic: str, outline_md: str, angle_md: str,
     angle_hint: str = "", interests_hint: str = "", user_direction: str = "",
 ) -> str:
+    """④レビュー（key_sectionsのみ）。画像案は⑤本文書き上がり後に image_refine_prompt で本文ベースに提案する設計。"""
     return f"""\
 {HOOKHACK_STRATEGY}
 
@@ -806,39 +807,11 @@ def review_and_images_prompt(
 {_topic_context_block(angle_hint, interests_hint, user_direction)}
 
 ## タスク
-ブログ記事執筆の前段で、以下2つを構造化出力する：
+ブログ記事執筆の前段で、**重要セクションのレビューだけ** を構造化出力する。
+画像案はこの段階では出力しない（本文書き上がり後に別途、本文を踏まえて提案する設計）。
 
-### 1. 重要セクションのレビュー
+### 重要セクションのレビュー
 outline の中で「ここが記事の核。読者に最も価値がある」と思うセクションを **1〜2個** 指摘し、なぜそう思うか・執筆時に強調すべき点をコメント。
-
-### 2. 挿入画像の提案（1記事 **3枚程度**、種類を多様に）
-記事の理解を助ける機能的な図を提案する。**checklist と comparison_table は Python で描画される（日本語OK、項目数自由、テキスト崩れなし）**。process_flow と data_chart のみ OpenAI 生成。
-
-## 画像提案の方針（最重要）
-- **合計 3枚程度**（多くて4枚）。記事に対して機械的に多数つけない
-- **画像の種類を多様にする**：checklist / comparison_table / process_flow / data_chart を**組み合わせて使い分け**、同じ型ばかりにならないようにする
-- **記事内容を踏まえて選ぶ**。テンプレ的な「静止画 vs 動画」の比較表だけが何記事も出てくるのは避ける
-- **各画像は記事のどの論点をどう補強するか**が明確であること（章タイトルに合わせるだけでなく、本文で語られる要点に直接効くこと）
-
-## 必ず1枚は入れたいもの
-- **「まとめ」セクション(summary)向けに `checklist` を1枚**。記事中の重要なアクション・確認項目を **7〜12個** 拾って、明日からのアクションリストに
-
-## 残り 1〜2枚を以下から選ぶ（記事内容に応じて）
-- `comparison_table`: 2つ以上の概念や手法を多面的に比較したい時。記事の本筋に対比軸があれば
-- `process_flow`: 手順・段階・PDCAサイクル等を視覚化したい時。プロンプトは日本語OK
-- `data_chart`: 具体数値の比較・推移を示したい時。プロンプトは日本語OK
-- もう一つ `checklist`: 別の角度（例: 失敗チェック / 始める前の準備リスト / 判断基準のチェック）でも◎
-
-## 種類のバランス例
-- 良い例: checklist + comparison_table + process_flow（型が全部違う）
-- 良い例: checklist + checklist（観点違い）+ data_chart
-- 悪い例: comparison_table + comparison_table + comparison_table（同じ型の繰り返し）
-- 悪い例: 毎回「静止画 vs 動画」の comparison_table がデフォで入る（テーマに合わない時は別の図に）
-
-## 絶対ルール
-- イラスト・装飾画像・ヒーロー画像・写真・人物・抽象アートは提案しない
-- 各H2に機械的に画像はつけない。価値ある図だけ
-- placement の section_id は outline 内の `### H2_N:` を h2_1, h2_2 ... と呼び、`### 自社実践` は self_practice、`### まとめ` は summary、`### CTA` は cta
 
 ## お題
 {topic}
@@ -860,57 +833,10 @@ outline の中で「ここが記事の核。読者に最も価値がある」と
       "writing_advice": "執筆時の注意点・強調すべき要素（120字以内）"
     }}
   ],
-  "images": [
-    /* checklist の例（必須1枚） */
-    {{
-      "id": "summary_checklist",
-      "diagram_type": "checklist",
-      "placement": "after:summary",
-      "purpose": "記事のまとめとして、明日からの実装アクションを網羅（80字以内、日本語）",
-      "size": "1024x1536",
-      "checklist": {{
-        "title": "明日からの実装チェックリスト（日本語、30字以内）",
-        "items": [
-          "1項目目（日本語、40〜80字、具体的なアクション、固有名詞・数字を含めると強い）",
-          "2項目目",
-          "..."
-        ]
-      }}
-    }},
-    /* comparison_table の例（対立概念があれば必須） */
-    {{
-      "id": "static_vs_video",
-      "diagram_type": "comparison_table",
-      "placement": "after:h2_2",
-      "purpose": "静止画と動画の差を多面的に対比（80字以内、日本語）",
-      "size": "1536x1024",
-      "table": {{
-        "title": "静止画広告 vs 動画広告 比較（日本語、30字以内）",
-        "cols": ["指標", "静止画広告", "動画広告"],
-        "rows": [
-          {{"label": "CPA", "values": ["平均100（基準）", "約63（37%改善）"]}},
-          {{"label": "ROAS", "values": ["1.8倍", "2.4倍"]}},
-          {{"label": "..", "values": ["..", ".."]}}
-        ]
-      }}
-    }},
-    /* process_flow or data_chart の例（任意、OpenAI 生成） */
-    {{
-      "id": "creative_pdca_flow",
-      "diagram_type": "process_flow",
-      "placement": "after:h2_3",
-      "purpose": "クリエイティブPDCAの5ステップを視覚化（80字以内、日本語）",
-      "size": "1536x1024",
-      "prompt_en": "クリエイティブ運用の5ステップを横並びのフラットなプロセスフロー図にする。背景は白、ステップ間は矢印で接続。各ステップのラベル（日本語）: 「計画」「制作」「テスト」「分析」「改善」。和文サンセリフ書体、ミニマルなフラットデザイン。イラスト・装飾・人物・写真は禁止。**画像内の全ての文字は日本語で描画する**。"
-    }}
-  ]
+  "images": []
 }}
 
-各画像オブジェクトは diagram_type に応じて：
-- "checklist" の場合は **`checklist` フィールド必須**（`prompt_en` 不要）
-- "comparison_table" の場合は **`table` フィールド必須**（`prompt_en` 不要）
-- "process_flow" / "data_chart" の場合は **`prompt_en` フィールド必須**（**日本語で記述**、画像内のラベル・テキストは必ず日本語にする）
-
+`images` は必ず空配列 `[]` を入れる（後段で本文ベースに提案するため）。
 JSONのみ。前置き・コードフェンス禁止。
 """
 
