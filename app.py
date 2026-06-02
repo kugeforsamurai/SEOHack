@@ -1899,51 +1899,72 @@ elif current_stage == "write":
                 with col_btn:
                     label = "再生成" if sec["content"] else "生成"
                     btype = "secondary" if sec["content"] else "primary"
-                    if st.button(label, key=f"gen_sec_{i}", type=btype, width="stretch"):
-                        with st.spinner(f"OpenAI ({os.environ.get('OPENAI_TEXT_MODEL', 'gpt-5.5')}) が「{sec['title']}」を書いています..."):
-                            try:
-                                written = [
-                                    (s["title"], s["content"])
-                                    for s in _merged
-                                    if s["id"] != sec["id"] and s["content"]
-                                ]
-                                memo = sec["memo"]
-                                if is_key:
-                                    memo += (
-                                        f"\n\n## 重点セクション指定\n"
-                                        f"このセクションは記事の核です。\n"
-                                        f"- 重要な理由: {advice.get('why_important', '')}\n"
-                                        f"- 執筆時の注意: {advice.get('writing_advice', '')}\n"
-                                        f"特に丁寧に、具体的に書いてください。"
-                                    )
-                                content = openai_client.generate_text(
-                                    prompts.section_prompt(
-                                        topic=_topic,
-                                        outline_md=_outline,
-                                        section_title=sec["title"],
-                                        section_memo=memo,
-                                        target_chars=sec["target_chars"],
-                                        cases_csv=_cases_csv,
-                                        written_sections=written,
-                                        is_self_practice=(sec["id"] == "self_practice"),
-                                        is_summary=(sec["id"] == "summary"),
-                                        is_cta=(sec["id"] == "cta"),
-                                        angle_hint=_angle_hint,
-                                        interests_hint=_interests_hint,
-                                        user_direction=_user_direction,
-                                    )
+                    _gen_clicked = st.button(label, key=f"gen_sec_{i}", type=btype, width="stretch")
+
+                # ---- 再生成指示 text_area（任意、再生成時のみ反映） ----
+                _has_content = bool(sec.get("content"))
+                _revision_request = st.text_area(
+                    f"📝 再生成指示（任意 / このセクションだけの修正要望）",
+                    value="",
+                    placeholder=(
+                        "例: もっと数字を入れて／失敗事例も追加して／"
+                        "メカニズムの説明を厚くして／読み手の悩み出しから入って"
+                    ) if _has_content else "（このセクション未生成。まず生成を→再生成時にここに指示を書ける）",
+                    height=80,
+                    key=f"sec_revreq_{i}",
+                    help="指示を入れて『再生成』を押すと、現在の本文を土台にこの指示を反映した修正版が生成される。空欄ならゼロから生成。",
+                )
+
+                if _gen_clicked:
+                    with st.spinner(f"OpenAI ({os.environ.get('OPENAI_TEXT_MODEL', 'gpt-5.5')}) が「{sec['title']}」を書いています..."):
+                        try:
+                            written = [
+                                (s["title"], s["content"])
+                                for s in _merged
+                                if s["id"] != sec["id"] and s["content"]
+                            ]
+                            memo = sec["memo"]
+                            if is_key:
+                                memo += (
+                                    f"\n\n## 重点セクション指定\n"
+                                    f"このセクションは記事の核です。\n"
+                                    f"- 重要な理由: {advice.get('why_important', '')}\n"
+                                    f"- 執筆時の注意: {advice.get('writing_advice', '')}\n"
+                                    f"特に丁寧に、具体的に書いてください。"
                                 )
-                                content = persona.sanitize_emoji(content)
-                                _merged[i]["content"] = content
-                                wd_obj = _date.fromisoformat(_work_date_str)
-                                storage.save_sections_file(wd_obj, {
-                                    "title": _title, "lead": _lead, "sections": _merged,
-                                })
-                                storage.snapshot_original(storage.sections_path(wd_obj))
-                                st.session_state[f"sec_text_{i}"] = content
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"エラー: {e}")
+                            content = openai_client.generate_text(
+                                prompts.section_prompt(
+                                    topic=_topic,
+                                    outline_md=_outline,
+                                    section_title=sec["title"],
+                                    section_memo=memo,
+                                    target_chars=sec["target_chars"],
+                                    cases_csv=_cases_csv,
+                                    written_sections=written,
+                                    is_self_practice=(sec["id"] == "self_practice"),
+                                    is_summary=(sec["id"] == "summary"),
+                                    is_cta=(sec["id"] == "cta"),
+                                    angle_hint=_angle_hint,
+                                    interests_hint=_interests_hint,
+                                    user_direction=_user_direction,
+                                    user_revision_request=_revision_request,
+                                    current_content=sec.get("content", ""),
+                                )
+                            )
+                            content = persona.sanitize_emoji(content)
+                            _merged[i]["content"] = content
+                            wd_obj = _date.fromisoformat(_work_date_str)
+                            storage.save_sections_file(wd_obj, {
+                                "title": _title, "lead": _lead, "sections": _merged,
+                            })
+                            storage.snapshot_original(storage.sections_path(wd_obj))
+                            st.session_state[f"sec_text_{i}"] = content
+                            # 再生成指示の text_area もクリアして次の再生成に備える
+                            st.session_state.pop(f"sec_revreq_{i}", None)
+                            st.toast(f"✅ 「{sec['title']}」を再生成（{len(content)}字）", icon="✅")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"エラー: {e}")
 
                 with st.expander("メモ（章立てから）", expanded=False):
                     st.text(sec["memo"])

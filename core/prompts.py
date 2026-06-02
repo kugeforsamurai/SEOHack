@@ -928,6 +928,8 @@ def section_prompt(
     angle_hint: str = "",
     interests_hint: str = "",
     user_direction: str = "",
+    user_revision_request: str = "",
+    current_content: str = "",
 ) -> str:
     written_block = ""
     if written_sections:
@@ -956,11 +958,29 @@ def section_prompt(
             "\n- 「弊社サービスは…」のような告知文ではなく、読者視点の選択肢として提示する"
         )
 
+    revision_block = ""
+    if user_revision_request.strip():
+        current_block = ""
+        if current_content.strip():
+            current_block = f"""
+
+### 現在の本文（再生成対象、これを土台に修正する）
+{current_content}
+"""
+        revision_block = f"""
+
+## ⚠️ 再生成指示（このセクションに対するユーザーの最優先指示）
+以下はユーザーが現在の本文を見て出した修正要望。**必ず反映**すること。一般論で薄めたり無視したりしてはならない。
+指示で言及された部分は必ず変える。指示で言及されていない部分は既存の良さを保ってOK。
+
+{user_revision_request.strip()}
+{current_block}"""
+
     return f"""\
 {HOOKHACK_STRATEGY}
 
 {persona.blog_block()}
-{_topic_context_block(angle_hint, interests_hint, user_direction)}
+{_topic_context_block(angle_hint, interests_hint, user_direction)}{revision_block}
 ## タスク
 ブログ記事の **このセクション1つだけ** 書く。
 
