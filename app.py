@@ -1266,6 +1266,19 @@ elif current_stage == "outline":
 
         if outline_md:
             # ---- 章立て全体の再考（Geminiに指示） ----
+            # 前回の再考ステータスを expander の外に表示（rerun 後も残る）
+            _last_refine = st.session_state.get("_last_outline_refine_status")
+            if _last_refine:
+                _ts = _last_refine.get("ts", "?")
+                _status = _last_refine.get("status", "?")
+                _msg = _last_refine.get("msg", "")
+                if _status == "success":
+                    st.success(f"✅ 前回の再考 [{_ts}]: {_msg}")
+                elif _status == "same":
+                    st.warning(f"⚠️ 前回の再考 [{_ts}]: {_msg}")
+                elif _status == "error":
+                    st.error(f"❌ 前回の再考 [{_ts}]: {_msg}")
+
             with st.expander("🔁 章立て全体を再考（Geminiに指示）", expanded=False):
                 st.caption(
                     "「タイトルをもっとキャッチーに」「H2の順序を入れ替えて」「全体像が掴みやすいリードに」など、"
@@ -1313,13 +1326,22 @@ elif current_stage == "outline":
                                 new_outline = _re_fence.sub(
                                     r"\n```\s*$", "", new_outline, flags=_re_fence.MULTILINE,
                                 ).strip()
+                                from datetime import datetime as _dt_now
+                                _now_str = _dt_now.now().strftime("%H:%M:%S")
                                 if not new_outline.strip():
-                                    st.error("Geminiから空の応答が返りました。再考指示を変えて再試行してください。")
+                                    _msg = "Geminiから空の応答。指示を変えて再試行を"
+                                    st.session_state["_last_outline_refine_status"] = {
+                                        "ts": _now_str, "status": "error", "msg": _msg,
+                                    }
+                                    st.toast(f"❌ {_msg}", icon="❌")
+                                    st.rerun()
                                 elif new_outline.strip() == outline_md.strip():
-                                    st.warning(
-                                        "再生成されたが内容が前と同じです。"
-                                        "指示をもっと具体的に書く or 別の角度で記述してください。"
-                                    )
+                                    _msg = "Geminiは応答したが内容が前と同じ。指示をもっと具体的に書く or 別の角度で"
+                                    st.session_state["_last_outline_refine_status"] = {
+                                        "ts": _now_str, "status": "same", "msg": _msg,
+                                    }
+                                    st.toast(f"⚠️ {_msg}", icon="⚠️")
+                                    st.rerun()
                                 else:
                                     storage.save_outline(work_date, new_outline)
                                     storage.snapshot_original(storage.outline_path(work_date))
@@ -1327,10 +1349,20 @@ elif current_stage == "outline":
                                     for k in list(st.session_state.keys()):
                                         if k.startswith("out_"):
                                             del st.session_state[k]
-                                    st.success(f"章立てを再生成しました（{len(new_outline)}字）")
+                                    _msg = f"章立てを再生成（{len(new_outline)}字）"
+                                    st.session_state["_last_outline_refine_status"] = {
+                                        "ts": _now_str, "status": "success", "msg": _msg,
+                                    }
+                                    st.toast(f"✅ {_msg}", icon="✅")
                                     st.rerun()
                             except Exception as e:
-                                st.error(f"エラー: {e}")
+                                from datetime import datetime as _dt_now
+                                _now_str = _dt_now.now().strftime("%H:%M:%S")
+                                st.session_state["_last_outline_refine_status"] = {
+                                    "ts": _now_str, "status": "error", "msg": f"エラー: {e}",
+                                }
+                                st.toast(f"❌ エラー: {e}", icon="❌")
+                                st.rerun()
 
             structured = outline_parser.parse_full(outline_md)
 
