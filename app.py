@@ -1305,14 +1305,30 @@ elif current_stage == "outline":
                                     )
                                 )
                                 new_outline = persona.sanitize_emoji(new_outline)
-                                storage.save_outline(work_date, new_outline)
-                                storage.snapshot_original(storage.outline_path(work_date))
-                                # 編集中の widget state をクリアして file から再ロード
-                                for k in list(st.session_state.keys()):
-                                    if k.startswith("out_"):
-                                        del st.session_state[k]
-                                st.success("章立てを再生成しました")
-                                st.rerun()
+                                # Geminiが ```markdown ... ``` で包んで返すケースを剥がす
+                                import re as _re_fence
+                                new_outline = _re_fence.sub(
+                                    r"^```(?:markdown|md)?\s*\n", "", new_outline.strip(), flags=_re_fence.MULTILINE,
+                                )
+                                new_outline = _re_fence.sub(
+                                    r"\n```\s*$", "", new_outline, flags=_re_fence.MULTILINE,
+                                ).strip()
+                                if not new_outline.strip():
+                                    st.error("Geminiから空の応答が返りました。再考指示を変えて再試行してください。")
+                                elif new_outline.strip() == outline_md.strip():
+                                    st.warning(
+                                        "再生成されたが内容が前と同じです。"
+                                        "指示をもっと具体的に書く or 別の角度で記述してください。"
+                                    )
+                                else:
+                                    storage.save_outline(work_date, new_outline)
+                                    storage.snapshot_original(storage.outline_path(work_date))
+                                    # 編集中の widget state をクリアして file から再ロード
+                                    for k in list(st.session_state.keys()):
+                                        if k.startswith("out_"):
+                                            del st.session_state[k]
+                                    st.success(f"章立てを再生成しました（{len(new_outline)}字）")
+                                    st.rerun()
                             except Exception as e:
                                 st.error(f"エラー: {e}")
 
