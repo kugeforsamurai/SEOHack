@@ -1940,8 +1940,16 @@ elif current_stage == "write":
                 col_head, col_btn = st.columns([4, 1])
                 with col_head:
                     star = "⭐ " if is_key else ""
-                    st.markdown(f"### {star}{_h2_label}: {sec['title']}")
-                    st.caption(f"目標 {sec['target_chars']}字 / id: `{sec['id']}`")
+                    st.caption(f"{star}{_h2_label} / 目標 {sec['target_chars']}字 / id: `{sec['id']}`")
+                    _new_title = st.text_input(
+                        "見出しタイトル",
+                        value=sec["title"],
+                        key=f"sec_title_{i}",
+                        label_visibility="collapsed",
+                    )
+                    if _new_title != sec["title"]:
+                        _merged[i]["title"] = _new_title
+                        sec["title"] = _new_title
                     if is_key:
                         st.info(
                             f"**重点セクション** — {advice.get('why_important', '')}\n\n"
