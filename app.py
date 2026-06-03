@@ -501,12 +501,24 @@ if mode == "production":
     )
     hookhack_goal = "" if hookhack_goal_choice == "（未指定）" else hookhack_goal_choice
 
+    # HookHack を記事に含めない（中立記事モード）
+    disable_hookhack = st.checkbox(
+        "🚫 HookHack を記事に含めない（中立記事モード）",
+        value=bool(state.get("disable_hookhack", False)),
+        key="_disable_hookhack_input",
+        help=(
+            "ONにすると、HookHackの社名・サービス案内・自社実践事例・PoC誘導を一切含めず"
+            "業界一般の情報源として書く。まとめ章も中立的な「次の一手」として書く。"
+        ),
+    )
+
     # 編集中フラグ判定（明示保存方式）— キーストロークごとには Supabase に書かない
     dirty = (
         topic != state.get("topic", "")
         or angle_hint != state.get("angle_hint", "")
         or interests_hint != state.get("interests_hint", "")
         or hookhack_goal != state.get("hookhack_goal", "")
+        or disable_hookhack != bool(state.get("disable_hookhack", False))
     )
     if dirty:
         save_label = "💾 お題/切り口/関心/目的を保存 ⚠️ 未保存変更あり"
@@ -519,6 +531,7 @@ if mode == "production":
         state["angle_hint"] = angle_hint
         state["interests_hint"] = interests_hint
         state["hookhack_goal"] = hookhack_goal
+        state["disable_hookhack"] = disable_hookhack
         storage.save_state(work_date, state)
         if dirty:
             st.toast("保存しました", icon="✅")
@@ -1248,6 +1261,7 @@ elif current_stage == "outline":
                                 topic, angle, cases_csv_for_outline,
                                 angle_hint=angle_hint, interests_hint=interests_hint, user_direction=user_direction,
                                 hookhack_goal=hookhack_goal,
+                                disable_hookhack=disable_hookhack,
                             )
                         )
                         outline_md = persona.sanitize_emoji(outline_md)
@@ -1315,6 +1329,7 @@ elif current_stage == "outline":
                                         cases_csv=_cases_csv,
                                         angle_hint=angle_hint, interests_hint=interests_hint, user_direction=user_direction,
                                         hookhack_goal=hookhack_goal,
+                                        disable_hookhack=disable_hookhack,
                                     )
                                 )
                                 new_outline = persona.sanitize_emoji(new_outline)
@@ -1839,6 +1854,7 @@ elif current_stage == "write":
                             prompts.lead_prompt(
                                 topic, title, lead_direction, outline,
                                 angle_hint=angle_hint, interests_hint=interests_hint, user_direction=user_direction,
+                                disable_hookhack=disable_hookhack,
                             )
                         )
                         new_lead = persona.sanitize_emoji(new_lead).strip()
@@ -1870,6 +1886,7 @@ elif current_stage == "write":
             _topic: str, _outline: str, _cases_csv: str,
             _title: str, _lead: str, _merged: list[dict], _work_date_str: str,
             _angle_hint: str, _interests_hint: str, _user_direction: str,
+            _disable_hookhack: bool = False,
         ):
             from datetime import date as _date
             is_key = advice is not None
@@ -1949,6 +1966,7 @@ elif current_stage == "write":
                                     user_direction=_user_direction,
                                     user_revision_request=_revision_request,
                                     current_content=sec.get("content", ""),
+                                    disable_hookhack=_disable_hookhack,
                                 )
                             )
                             content = persona.sanitize_emoji(content)
@@ -2000,6 +2018,7 @@ elif current_stage == "write":
                 topic, outline, cases_csv,
                 title, lead, merged, work_date.isoformat(),
                 angle_hint, interests_hint, user_direction,
+                _disable_hookhack=disable_hookhack,
             )
 
         # ---- 📷 画像（編集 + 生成）— 本文書き上がり後にここで触る ----
@@ -2509,6 +2528,7 @@ elif current_stage == "write":
                             prompts.posts_prompt(
                                 topic, blog_md, 5,
                                 angle_hint=angle_hint, interests_hint=interests_hint, user_direction=user_direction,
+                                disable_hookhack=disable_hookhack,
                             )
                         )
                         # 絵文字・豆腐文字サニタイズ

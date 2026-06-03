@@ -16,7 +16,10 @@ def _slug(title: str) -> str:
     # H2_N より特殊セクション判定を先に（"H2_5: まとめ" を summary と認識するため）
     if "自社実践" in title:
         return "self_practice"
-    if "まとめ" in title or "結論" in title or "総括" in title:
+    if (
+        "まとめ" in title or "結論" in title or "総括" in title
+        or "次の打ち手" in title or "次の一歩" in title or "ラップアップ" in title
+    ):
         return "summary"
     if "CTA" in title.upper() or "誘導" in title:
         return "cta"
