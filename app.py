@@ -1318,6 +1318,30 @@ elif current_stage == "outline":
                     if not refine_feedback.strip():
                         st.warning("再考指示を入力してください")
                     else:
+                        # ---- 再考指示から disable_hookhack の自動切替を判定 ----
+                        _neutral_kw = [
+                            "HookHack書かない", "HookHackを書かない", "HookHackは書かない",
+                            "HookHack なし", "HookHackなし", "HookHack 無し", "HookHack無し",
+                            "HookHack 抜き", "HookHack抜き", "HookHackには触れない", "HookHackに触れない",
+                            "HookHackを外す", "HookHackは外す", "中立記事", "中立モード",
+                            "弊社言及なし", "自社言及なし", "弊社の話なし", "自社の話なし",
+                        ]
+                        _inclusive_kw = [
+                            "HookHack入れて", "HookHackを入れて", "HookHack含めて",
+                            "HookHack要素を入れて", "自社実践を入れて", "自社実践コーナーを入れて",
+                            "自社実践コーナーを加えて", "自社事例を入れて", "HookHack話を強める",
+                        ]
+                        _effective_disable_hookhack = disable_hookhack
+                        _auto_toggle_msg = None
+                        if any(kw in refine_feedback for kw in _neutral_kw):
+                            _effective_disable_hookhack = True
+                            if not disable_hookhack:
+                                _auto_toggle_msg = "🚫 指示から中立記事モードを自動ON（HookHack言及を全削除）"
+                        elif any(kw in refine_feedback for kw in _inclusive_kw):
+                            _effective_disable_hookhack = False
+                            if disable_hookhack:
+                                _auto_toggle_msg = "✅ 指示からHookHack言及モードを自動ON"
+
                         with st.spinner("Geminiが章立てを作り直しています...（30〜60秒）"):
                             try:
                                 _cases_csv = (
@@ -1329,7 +1353,7 @@ elif current_stage == "outline":
                                         cases_csv=_cases_csv,
                                         angle_hint=angle_hint, interests_hint=interests_hint, user_direction=user_direction,
                                         hookhack_goal=hookhack_goal,
-                                        disable_hookhack=disable_hookhack,
+                                        disable_hookhack=_effective_disable_hookhack,
                                     )
                                 )
                                 new_outline = persona.sanitize_emoji(new_outline)
@@ -1360,15 +1384,25 @@ elif current_stage == "outline":
                                 else:
                                     storage.save_outline(work_date, new_outline)
                                     storage.snapshot_original(storage.outline_path(work_date))
+                                    # 自動切替された場合は state にも反映
+                                    if _effective_disable_hookhack != disable_hookhack:
+                                        state["disable_hookhack"] = _effective_disable_hookhack
+                                        storage.save_state(work_date, state)
+                                        # サイドバーcheckbox の widget state もクリア（次rerunで再読込）
+                                        st.session_state.pop("_disable_hookhack_input", None)
                                     # 編集中の widget state をクリアして file から再ロード
                                     for k in list(st.session_state.keys()):
                                         if k.startswith("out_"):
                                             del st.session_state[k]
                                     _msg = f"章立てを再生成（{len(new_outline)}字）"
+                                    if _auto_toggle_msg:
+                                        _msg += f" / {_auto_toggle_msg}"
                                     st.session_state["_last_outline_refine_status"] = {
                                         "ts": _now_str, "status": "success", "msg": _msg,
                                     }
                                     st.toast(f"✅ {_msg}", icon="✅")
+                                    if _auto_toggle_msg:
+                                        st.toast(_auto_toggle_msg, icon=("🚫" if _effective_disable_hookhack else "✅"))
                                     st.rerun()
                             except Exception as e:
                                 from datetime import datetime as _dt_now
