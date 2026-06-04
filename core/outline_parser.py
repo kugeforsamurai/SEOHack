@@ -16,13 +16,22 @@ def _slug(title: str) -> str:
     # H2_N より特殊セクション判定を先に（"H2_5: まとめ" を summary と認識するため）
     if "自社実践" in title:
         return "self_practice"
+    # CTA 判定を summary より先に（「次の一歩へ — 動画PoCを始める」のような複合タイトル対策）
+    # CTA キーワード: 「CTA」「誘導」「次の一歩」「最初の一歩」「アクション」「実装に向けて」「踏み出す」「次の打ち手」
+    if (
+        "CTA" in title.upper() or "誘導" in title
+        or "次の一歩" in title or "最初の一歩" in title
+        or "アクション" in title or "実装に向けて" in title
+        or "踏み出す" in title or "次の打ち手" in title
+        or "より深く" in title or "始めるための" in title
+    ):
+        return "cta"
+    # まとめ系: 純粋集約章
     if (
         "まとめ" in title or "結論" in title or "総括" in title
-        or "次の打ち手" in title or "次の一歩" in title or "ラップアップ" in title
+        or "ラップアップ" in title
     ):
         return "summary"
-    if "CTA" in title.upper() or "誘導" in title:
-        return "cta"
     if "リード" in title:
         return "lead"
     m = re.match(r"^(H2[_\-]?\d+)", title, re.IGNORECASE)
