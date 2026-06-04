@@ -106,7 +106,27 @@ st.set_page_config(page_title="メディアなんとか", page_icon=None, layout
 # パスワード認証ゲート
 # APP_PASSWORD が Secrets / env に設定されていれば、起動時に認証を要求。
 # 未設定ならゲート無効（ローカル開発用）。
+# 認証成功時は cookie に HMAC トークンを保存（7日間有効）→ F5してもログイン保持。
 # ============================================================
+import hmac as _hmac
+import hashlib as _hashlib
+from datetime import datetime as _datetime, timedelta as _timedelta
+import extra_streamlit_components as _stx
+
+_AUTH_COOKIE_NAME = "seohack_auth_v1"
+
+
+@st.cache_resource
+def _get_cookie_manager():
+    return _stx.CookieManager(key="seohack_cm")
+
+
+def _expected_auth_token(password: str) -> str:
+    """パスワード自体は cookie に入れず、HMAC で派生したトークンだけ保存。
+    パスワードが変われば全 cookie 即時無効。"""
+    return _hmac.new(password.encode("utf-8"), b"seohack_auth_v1", _hashlib.sha256).hexdigest()[:32]
+
+
 def _check_password() -> bool:
     expected = api_keys.get_app_password()
     if not expected:
@@ -114,11 +134,22 @@ def _check_password() -> bool:
     if st.session_state.get("_authenticated"):
         return True
 
+    cm = _get_cookie_manager()
+    # cookie 経由の自動ログインを試す（初回 render では None のことがある）
+    try:
+        token_in_cookie = cm.get(_AUTH_COOKIE_NAME)
+    except Exception:
+        token_in_cookie = None
+    if token_in_cookie and token_in_cookie == _expected_auth_token(expected):
+        st.session_state["_authenticated"] = True
+        return True
+
     # 未認証 → ログイン画面
     st.title("メディアなんとか")
     st.caption("HookHack コンテンツ生成パイプライン")
     st.divider()
     st.subheader("🔒 パスワードを入力してください")
+    st.caption("ログイン後 7 日間はこのブラウザでパスワード入力をスキップできます")
 
     pwd = st.text_input(
         "パスワード",
@@ -132,6 +163,15 @@ def _check_password() -> bool:
         if st.button("ログイン", type="primary", width="stretch"):
             if pwd == expected:
                 st.session_state["_authenticated"] = True
+                # 7日間有効の cookie を発行
+                try:
+                    cm.set(
+                        _AUTH_COOKIE_NAME,
+                        _expected_auth_token(expected),
+                        expires_at=_datetime.now() + _timedelta(days=7),
+                    )
+                except Exception as e:
+                    st.warning(f"cookie保存に失敗（次回もパスワード入力が必要かも）: {e}")
                 if "_login_pwd" in st.session_state:
                     del st.session_state["_login_pwd"]
                 st.rerun()
@@ -141,6 +181,16 @@ def _check_password() -> bool:
                 import time
                 time.sleep(1)
     return False
+
+
+def _logout_and_clear_cookie() -> None:
+    """ログアウト: session_state と cookie 両方を消す。"""
+    st.session_state.pop("_authenticated", None)
+    try:
+        cm = _get_cookie_manager()
+        cm.delete(_AUTH_COOKIE_NAME)
+    except Exception:
+        pass
 
 
 if not _check_password():
@@ -189,12 +239,19 @@ def _clear_run_widget_state() -> None:
 with st.sidebar:
     st.title("メディアなんとか")
 
-    # ---- ログアウト（パスワード認証が有効な時のみ表示）----
-    if api_keys.get_app_password():
-        if st.button("🚪 ログアウト", help="認証セッションを終了する"):
-            st.session_state["_authenticated"] = False
+    # ---- 再読み込み（WebSocket切断後のUI復帰用）----
+    col_rl, col_lo = st.columns(2)
+    with col_rl:
+        if st.button("🔄 再読み込み", help="生成結果が画面に反映されない時はこれを押す（cookie認証なのでパスワード再入力不要）", width="stretch"):
+            _invalidate_runs_cache()
             st.rerun()
-        st.divider()
+    with col_lo:
+        # ---- ログアウト（パスワード認証が有効な時のみ表示）----
+        if api_keys.get_app_password():
+            if st.button("🚪 ログアウト", help="cookieも削除する", width="stretch"):
+                _logout_and_clear_cookie()
+                st.rerun()
+    st.divider()
 
     # ---- モード切替（⓪テーマ探索 と 制作 は完全分離） ----
     mode = st.radio(
