@@ -116,8 +116,10 @@ import extra_streamlit_components as _stx
 _AUTH_COOKIE_NAME = "seohack_auth_v1"
 
 
-@st.cache_resource
 def _get_cookie_manager():
+    """CookieManager は内部でカスタムコンポーネント（ウィジェット）を使うため、
+    @st.cache_resource でラップしてはいけない（CachedWidgetWarning が出る）。
+    key を固定すれば毎リラン新規インスタンスでも widget state は保持される。"""
     return _stx.CookieManager(key="seohack_cm")
 
 
