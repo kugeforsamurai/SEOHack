@@ -645,6 +645,41 @@ Markdownのみ出力。前置き・後書き・コードフェンス（```）で
 """
 
 
+def image_caption_prompt(
+    topic: str,
+    checklist_title: str,
+    checklist_items: list[str],
+    angle_hint: str = "",
+) -> str:
+    """まとめチェックリスト画像の下に添える「ご参考に〜」キャプションを生成。
+    記事のトーンに揃え、1〜2文・40〜80字の自然な提示文を作る。"""
+    items_md = "\n".join(f"- {it}" for it in checklist_items[:10])
+    angle_block = f"\n## 切り口（angle）\n{angle_hint.strip()}\n" if (angle_hint and angle_hint.strip()) else ""
+    return f"""\
+{persona.blog_block()}
+
+## タスク
+記事末のまとめチェックリスト画像のすぐ下に添える、短い案内キャプションを1つだけ生成する。
+読者が画像を見たときに「保存しておこう」「振り返り用に置いておこう」と思える、温かい提示文。
+
+## お題
+{topic}
+{angle_block}
+## チェックリスト画像の中身
+**タイトル**: {checklist_title}
+**項目**:
+{items_md}
+
+## 出力ルール
+- 1〜2文、40〜80字
+- 「ご参考に」「振り返り用に」「お手元に置いて」「持ち歩き用に」「ブックマークしておく」のような自然な提示の言い回しから選ぶ（毎回違う言い回しを使う）
+- 命令調・誇張禁止（「絶対」「必ず」「今すぐ」「決定版」など使わない）
+- 体言止め・絵文字・特殊記号禁止
+- 「本記事の」「この記事の」のような事務的フレーズは控えめに（1回まで）
+- 出力はキャプション本文のみ。前置き・引用符・装飾・改行は一切付けない（1行で返す）
+"""
+
+
 def image_prompt_for_checklist(title: str, items: list[str]) -> str:
     """チェックリスト画像のOpenAI gpt-image用プロンプト生成。
     エディトリアル / 編集デザイン仕様を英語で埋め込む。日本語テキストはそのまま保持指示。"""

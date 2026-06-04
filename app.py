@@ -2280,7 +2280,7 @@ elif current_stage == "write":
 
                     if diagram_type == "checklist":
                         st.caption(f"🎨 OpenAI {os.environ.get('OPENAI_IMAGE_MODEL', 'gpt-image-2')} で生成")
-                        cl = img.get("checklist", {"title": "", "items": []})
+                        cl = img.get("checklist", {"title": "", "items": [], "caption": ""})
                         cl_title = st.text_input(
                             "チェックリスト タイトル", value=cl.get("title", ""), key=f"cl_title_{i}",
                         )
@@ -2307,6 +2307,23 @@ elif current_stage == "write":
                                         prompt_en = prompts.image_prompt_for_checklist(cl_title, cl_items)
                                         img_bytes = openai_client.generate_image(prompt=prompt_en, size=size, quality=quality)
                                         storage.save_image_bytes(work_date, img_id, img_bytes)
+                                        # ---- 画像と同時に「ご参考に〜」キャプションも生成 ----
+                                        try:
+                                            cap_prompt = prompts.image_caption_prompt(
+                                                topic=topic,
+                                                checklist_title=cl_title,
+                                                checklist_items=cl_items,
+                                                angle_hint=angle_hint,
+                                            )
+                                            cap_text = openai_client.generate_text(cap_prompt)
+                                            cap_text = persona.sanitize_emoji(cap_text).strip()
+                                            # review に書き戻し → 次のリランで text_area に反映
+                                            review["images"][i].setdefault("checklist", {})
+                                            review["images"][i]["checklist"]["caption"] = cap_text
+                                            storage.save_review(work_date, review)
+                                            st.session_state[f"_pending_cl_caption_{i}"] = cap_text
+                                        except Exception as _cap_e:
+                                            st.warning(f"キャプション生成のみ失敗（画像は成功）: {_cap_e}")
                                         st.success("生成完了")
                                         st.rerun()
                                     except Exception as e:
@@ -2315,7 +2332,48 @@ elif current_stage == "write":
                             if exists:
                                 _img_data = storage.load_image_bytes(work_date, img_id) or b""
                                 st.download_button("ダウンロード", _img_data, file_name=img_path.name, mime="image/png", key=f"img_dl_{i}", width="stretch")
-                        updated.append({**img, "size": size, "checklist": {"title": cl_title, "items": cl_items}})
+
+                        # ---- 画像下のキャプション（「ご参考に〜」、自動生成 + 編集可） ----
+                        # _pending パターン: ボタン直後の値を widget が確実に拾う
+                        if f"_pending_cl_caption_{i}" in st.session_state:
+                            st.session_state[f"cl_caption_{i}"] = st.session_state.pop(f"_pending_cl_caption_{i}")
+                        _cur_caption = cl.get("caption", "")
+                        col_cap, col_regen = st.columns([4, 1])
+                        with col_cap:
+                            cl_caption = st.text_area(
+                                "📝 画像直下のキャプション（自動生成、編集可）",
+                                value=_cur_caption,
+                                height=70,
+                                key=f"cl_caption_{i}",
+                                help="まとめチェックリスト画像の下に添える短い案内文。blog.md書き出し時に画像直後の段落として挿入される",
+                            )
+                        with col_regen:
+                            st.caption("　")  # alignment spacer
+                            if st.button(
+                                "🔁 文だけ\n再生成",
+                                key=f"cl_caption_regen_{i}",
+                                disabled=not openai_client.keys_configured() or not cl_items,
+                                width="stretch",
+                            ):
+                                with st.spinner("キャプション生成中..."):
+                                    try:
+                                        cap_prompt = prompts.image_caption_prompt(
+                                            topic=topic,
+                                            checklist_title=cl_title,
+                                            checklist_items=cl_items,
+                                            angle_hint=angle_hint,
+                                        )
+                                        cap_text = openai_client.generate_text(cap_prompt)
+                                        cap_text = persona.sanitize_emoji(cap_text).strip()
+                                        review["images"][i].setdefault("checklist", {})
+                                        review["images"][i]["checklist"]["caption"] = cap_text
+                                        storage.save_review(work_date, review)
+                                        st.session_state[f"_pending_cl_caption_{i}"] = cap_text
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"エラー: {e}")
+
+                        updated.append({**img, "size": size, "checklist": {"title": cl_title, "items": cl_items, "caption": cl_caption}})
 
                     elif diagram_type == "comparison_table":
                         st.caption(f"🎨 OpenAI {os.environ.get('OPENAI_IMAGE_MODEL', 'gpt-image-2')} で生成")
@@ -2437,6 +2495,11 @@ elif current_stage == "write":
                     rel = f"images/{img_path.name}"
                     alt = img.get("purpose", img_id)
                     md = f"![{alt}]({rel})"
+                    # チェックリスト画像なら直下にキャプションを段落として続ける
+                    if img.get("diagram_type") == "checklist":
+                        _cap = (img.get("checklist", {}).get("caption") or "").strip()
+                        if _cap:
+                            md = f"{md}\n\n{_cap}"
                     placement = img.get("placement", "")
                     if placement == "hero":
                         hero_imgs.append(md)
