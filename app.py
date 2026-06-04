@@ -1876,6 +1876,7 @@ elif current_stage == "write":
     else:
         df = storage.load_cases(work_date)
         cases_csv = df.to_csv(index=False)
+        angle = storage.load_angle(work_date) or ""
 
         with st.expander("章立て（参考）", expanded=False):
             st.markdown(outline)
@@ -1972,6 +1973,74 @@ elif current_stage == "write":
         if not merged:
             st.warning("章立てから`###`セクションが抽出できませんでした。outlineの形式を確認してください。")
 
+        # ---- 🔎 論理整合性レビュー（Gemini） ----
+        _written_count = sum(1 for s in merged if (s.get("content") or "").strip())
+        with st.container(border=True):
+            col_rv1, col_rv2 = st.columns([3, 2])
+            with col_rv1:
+                st.markdown("**🔎 論理整合性レビュー** — OpenAIが書いた本文を Gemini が監査して、事例ミスマッチ・根拠不透明な数字・論理飛躍・章間矛盾を洗い出す")
+                st.caption(f"執筆済み: {_written_count} / {len(merged)} セクション（全て書いてから走らせるのが推奨）")
+            with col_rv2:
+                _can_review = _written_count >= 2
+                if st.button(
+                    "🔎 Geminiで整合性レビュー実行",
+                    type="secondary", width="stretch",
+                    disabled=not _can_review,
+                    help="2セクション以上書いてから実行可能" if not _can_review else "Gemini に本文を渡して論理整合性を監査",
+                ):
+                    with st.spinner("Gemini が論理整合性をレビューしています..."):
+                        try:
+                            _sections_md_for_review = "\n\n".join(
+                                f"## section_id: {s['id']} — {s['title']}\n{s['content']}"
+                                for s in merged if (s.get("content") or "").strip()
+                            )
+                            _review_result = gemini_client.generate_json(
+                                prompts.consistency_review_prompt(
+                                    topic=topic,
+                                    angle_md=angle,
+                                    cases_csv=cases_csv,
+                                    sections_md=_sections_md_for_review,
+                                )
+                            )
+                            if not isinstance(_review_result, dict):
+                                _review_result = {"issues": []}
+                            st.session_state["consistency_review"] = _review_result
+                            from datetime import datetime as _dt
+                            st.session_state["consistency_review_at"] = _dt.now().strftime("%H:%M")
+                            st.rerun()
+                        except Exception as _e:
+                            st.error(f"レビュー失敗: {_e}")
+
+            # 結果の整形と章間問題の表示
+            _review_result = st.session_state.get("consistency_review") or {}
+            _all_issues = _review_result.get("issues", []) if isinstance(_review_result, dict) else []
+            _issues_by_section: dict[str, list[dict]] = {}
+            _cross_issues: list[dict] = []
+            for _iss in _all_issues:
+                if not isinstance(_iss, dict):
+                    continue
+                _sid = (_iss.get("section_id") or "").strip()
+                if _sid in ("", "cross"):
+                    _cross_issues.append(_iss)
+                else:
+                    _issues_by_section.setdefault(_sid, []).append(_iss)
+
+            if _all_issues:
+                _ts = st.session_state.get("consistency_review_at", "")
+                st.caption(f"前回実行: {_ts} / 検出: {len(_all_issues)}件（章間: {len(_cross_issues)} / セクション内: {sum(len(v) for v in _issues_by_section.values())}）")
+            elif st.session_state.get("consistency_review"):
+                st.success("✅ Geminiレビュー: 論理整合性に問題なし")
+
+            if _cross_issues:
+                with st.expander(f"⚠️ 章間の整合性問題 × {len(_cross_issues)}", expanded=True):
+                    for _ci in _cross_issues:
+                        _sev = {"high": "🔴", "medium": "🟡", "low": "🔵"}.get((_ci.get("severity") or "medium").lower(), "🟡")
+                        st.markdown(f"{_sev} **{_ci.get('issue_type', 'cross')}**: {_ci.get('description', '')}")
+                        if _ci.get("location"):
+                            st.caption(f"該当箇所: 「{_ci['location']}」")
+                        if _ci.get("suggested_fix"):
+                            st.caption(f"→ 修正案: {_ci['suggested_fix']}")
+
         # セクション編集を @st.fragment で囲ってセクション独立リランに
         @st.fragment
         def _section_editor_fragment(
@@ -1980,6 +2049,7 @@ elif current_stage == "write":
             _title: str, _lead: str, _merged: list[dict], _work_date_str: str,
             _angle_hint: str, _interests_hint: str, _user_direction: str,
             _disable_hookhack: bool = False,
+            _section_issues: list[dict] | None = None,
         ):
             from datetime import date as _date
             is_key = advice is not None
@@ -2019,7 +2089,34 @@ elif current_stage == "write":
                     btype = "secondary" if sec["content"] else "primary"
                     _gen_clicked = st.button(label, key=f"gen_sec_{i}", type=btype, width="stretch")
 
+                # ---- Geminiレビュー検出問題の表示 ----
+                if _section_issues:
+                    with st.container(border=True):
+                        st.markdown(f"**🔎 Geminiレビュー検出問題 × {len(_section_issues)}**")
+                        for _idx, _iss in enumerate(_section_issues):
+                            _sev = {"high": "🔴", "medium": "🟡", "low": "🔵"}.get((_iss.get("severity") or "medium").lower(), "🟡")
+                            _itype = _iss.get("issue_type", "")
+                            _desc = _iss.get("description", "")
+                            _loc = _iss.get("location", "")
+                            _fix = _iss.get("suggested_fix", "")
+                            st.markdown(f"{_sev} **{_itype}**: {_desc}")
+                            if _loc:
+                                st.caption(f"該当箇所: 「{_loc}」")
+                            if _fix:
+                                st.caption(f"→ 修正案: {_fix}")
+                                if st.button(
+                                    "📥 この指摘を再生成指示に反映",
+                                    key=f"apply_iss_{i}_{_idx}",
+                                    help="下の再生成指示欄にこの修正案を入れる。その後『再生成』を押すと反映",
+                                ):
+                                    st.session_state[f"_pending_revreq_{i}"] = _fix
+                                    st.rerun()
+
                 # ---- 再生成指示 text_area（任意、再生成時のみ反映） ----
+                # Geminiレビューの「この指摘を反映」が押されていたら、widget生成前に反映
+                if f"_pending_revreq_{i}" in st.session_state:
+                    st.session_state[f"sec_revreq_{i}"] = st.session_state.pop(f"_pending_revreq_{i}")
+
                 _has_content = bool(sec.get("content"))
                 _revision_request = st.text_area(
                     f"📝 再生成指示（任意 / このセクションだけの修正要望）",
@@ -2120,6 +2217,7 @@ elif current_stage == "write":
                 title, lead, merged, work_date.isoformat(),
                 angle_hint, interests_hint, user_direction,
                 _disable_hookhack=disable_hookhack,
+                _section_issues=_issues_by_section.get(sec["id"], []),
             )
 
         # ---- 📷 画像（編集 + 生成）— 本文書き上がり後にここで触る ----

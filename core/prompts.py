@@ -945,6 +945,79 @@ def lead_prompt(
 """
 
 
+def consistency_review_prompt(
+    topic: str,
+    angle_md: str,
+    cases_csv: str,
+    sections_md: str,
+) -> str:
+    """⑤執筆後にGeminiで論理整合性をレビューさせるプロンプト。
+    OpenAIが書いた本文を「リサーチ視点」で見直し、事例ミスマッチ・根拠不透明な数字・
+    論理飛躍・章間矛盾を検出する。文体ではなく **論理だけ** を見る。"""
+    return f"""\
+あなたは記事のロジック監査担当。OpenAIが書いた本文を、cases.csvの事例と角度（angle）に照らして
+**論理整合性のみ** を厳しくチェックする。文体・表現の好みは無視する。
+
+## お題
+{topic}
+
+## 確定した記事の角度（angle）
+{angle_md}
+
+## 事例データ（CSV / 数字・社名の唯一の正解）
+{cases_csv}
+
+## 検証対象の本文（H2セクション群）
+{sections_md}
+
+## チェック項目（各H2 + 章間）
+
+### A. 事例ミスマッチ（example_mismatch）
+- H2の主張と、引用された事例が逆方向 or 関係薄い
+- 例: 「動画が静止画より効く」と書いているのに静止画で成功した事例を引用
+
+### B. 根拠不透明な数字（unsubstantiated_number）
+- 本文中の数字（%・倍・件数）が cases.csv に存在しない
+- 社名は cases.csv にあるが、その社名に紐づく数字が CSV と一致しない
+- 「業界平均で〜」「一般に〜」のような出典不明の概算
+
+### C. 論理飛躍（logical_jump）
+- 事例の結果から結論への論理橋渡しが不足（「A社がBをしたら成果出た→だからCをすべき」のC部分が事例から飛んでいる）
+- メカニズム説明が抽象的すぎて、なぜそうなるかが読者に伝わらない
+
+### D. 章間矛盾（cross_section_contradiction）
+- H2_1 と H2_3 で相反する主張をしている
+- 数字や定義が章ごとにブレている
+
+## 出力ルール（最重要）
+- **本当に問題があるものだけ** 報告する（重箱の隅つつき禁止）
+- 各H2に必ず1個出す必要はない。問題ゼロなら issues は空配列でOK
+- 修正案（suggested_fix）は OpenAI に渡す再生成指示の形で書く（「〜してください」「〜に書き換えて」）
+
+## 出力フォーマット（JSONのみ、前後に何も書かない）
+```json
+{{
+  "issues": [
+    {{
+      "section_id": "h2_2",
+      "issue_type": "example_mismatch",
+      "severity": "high",
+      "location": "本文中の該当箇所を30字以内で引用",
+      "description": "何が問題か。論理がどうズレているか具体的に",
+      "suggested_fix": "OpenAIに渡す修正指示。例: 「Nikeの事例は静止画キャンペーンの数字なので、H2の動画優位論と整合しない。cases.csvからSephoraの動画A/B事例（CTR 2.1倍）に差し替え、論点と事例の方向を揃えてください」"
+    }}
+  ]
+}}
+```
+
+- section_id は「h2_1」「h2_2」「h2_3」「self_practice」「summary」「cta」「sec_N」のいずれか。
+- 章間矛盾の場合、section_id は "cross" にして description に関連H2を明記する。
+- severity: high（事実誤認・大きな論理破綻）/ medium（読者が引っかかる程度）/ low（細かい改善余地）
+
+JSONのみ出力。前置き・後書き・コードフェンスは禁止。
+"""
+
+
 def section_prompt(
     topic: str,
     outline_md: str,
