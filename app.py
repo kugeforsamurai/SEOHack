@@ -37,6 +37,25 @@ def _invalidate_runs_cache() -> None:
     st.session_state.pop("_all_runs_cache_at", None)
 
 
+def _invalidate_write_stage_widgets() -> None:
+    """③で章立てが変わったり再生成された後に呼ぶ。
+    ⑤執筆の widget state を消し、次の ⑤ 表示時に sections.json + 新 outline から再初期化させる。
+    これを忘れると key=sec_title_{i}/sec_text_{i} の古い値が widget に貼り付いたままになる。"""
+    prefixes = (
+        "sec_title_", "sec_text_", "sec_revreq_", "_pending_revreq_",
+        "cl_title_", "cl_items_", "cl_caption_", "_pending_cl_caption_",
+        "cl_caption_regen_",
+        "tb_", "img_", "apply_iss_", "gen_sec_",
+    )
+    exact = {"blog_title", "blog_lead", "_pending_lead_update"}
+    for k in list(st.session_state.keys()):
+        if k.startswith(prefixes) or k in exact:
+            del st.session_state[k]
+    # 古い章立てに対するGeminiレビュー結果も無効化
+    st.session_state.pop("consistency_review", None)
+    st.session_state.pop("consistency_review_at", None)
+
+
 # ============================================================
 # ⑤⑥の重い処理（画像base64+payload組立）を @st.cache_data でキャッシュ化
 # キーは work_date と review.json の image ID 群（変更を検知して invalidate）
@@ -1330,6 +1349,8 @@ elif current_stage == "outline":
                         for k in list(st.session_state.keys()):
                             if k.startswith("out_"):
                                 del st.session_state[k]
+                        # ⑤執筆の widget state も無効化（古い見出し/本文が貼り付いたままになるのを防ぐ）
+                        _invalidate_write_stage_widgets()
                         st.success("章立て生成完了")
                         st.rerun()
                     except Exception as e:
@@ -1453,6 +1474,8 @@ elif current_stage == "outline":
                                     for k in list(st.session_state.keys()):
                                         if k.startswith("out_"):
                                             del st.session_state[k]
+                                    # ⑤執筆の widget state も無効化
+                                    _invalidate_write_stage_widgets()
                                     _msg = f"章立てを再生成（{len(new_outline)}字）"
                                     if _auto_toggle_msg:
                                         _msg += f" / {_auto_toggle_msg}"
@@ -1535,6 +1558,7 @@ elif current_stage == "outline":
                 for k in list(st.session_state.keys()):
                     if k.startswith("out_sec_"):
                         del st.session_state[k]
+                _invalidate_write_stage_widgets()
                 st.rerun()
 
             edited_sections: list[dict] = []
@@ -1667,6 +1691,7 @@ elif current_stage == "outline":
                         for k in list(st.session_state.keys()):
                             if k.startswith("out_sec_"):
                                 del st.session_state[k]
+                        _invalidate_write_stage_widgets()
                         st.rerun()
 
                     edited_sections.append({
@@ -1693,6 +1718,7 @@ elif current_stage == "outline":
                 for k in list(st.session_state.keys()):
                     if k.startswith("out_sec_"):
                         del st.session_state[k]
+                _invalidate_write_stage_widgets()
                 st.rerun()
 
             # ---- 保存 / 完了 ----
@@ -1707,11 +1733,13 @@ elif current_stage == "outline":
                 if st.button("章立てを保存", width="stretch"):
                     new_md = outline_parser.serialize_full(new_struct)
                     storage.save_outline(work_date, new_md)
+                    _invalidate_write_stage_widgets()
                     st.success("保存しました")
             with cn:
                 if st.button("③企画を完了 → ④レビューへ", type="primary", width="stretch"):
                     new_md = outline_parser.serialize_full(new_struct)
                     storage.save_outline(work_date, new_md)
+                    _invalidate_write_stage_widgets()
                     storage.mark_stage(work_date, "outline", True)
                     goto("review")
 
