@@ -579,14 +579,15 @@ if mode == "production":
     )
     hookhack_goal = "" if hookhack_goal_choice == "（未指定）" else hookhack_goal_choice
 
-    # HookHack を記事に含めない（中立記事モード）
+    # HookHack / LPHack を記事に含めない（中立記事モード）
     disable_hookhack = st.checkbox(
-        "🚫 HookHack を記事に含めない（中立記事モード）",
+        "🚫 HookHack/LPHack を記事に含めない（中立記事モード）",
         value=bool(state.get("disable_hookhack", False)),
         key="_disable_hookhack_input",
         help=(
-            "ONにすると、HookHackの社名・サービス案内・自社実践事例・PoC誘導を一切含めず"
-            "業界一般の情報源として書く。まとめ章も中立的な「次の一手」として書く。"
+            "ONにすると、HookHack/LPHack の社名・サービス案内・自社実践事例・"
+            "PoC誘導・連動運用案内を一切含めず、業界一般の情報源として書く。"
+            "まとめ章・CTA章も中立的な『次の一手』として書く。"
         ),
     )
 
@@ -1403,24 +1404,31 @@ elif current_stage == "outline":
                             "HookHack書かない", "HookHackを書かない", "HookHackは書かない",
                             "HookHack なし", "HookHackなし", "HookHack 無し", "HookHack無し",
                             "HookHack 抜き", "HookHack抜き", "HookHackには触れない", "HookHackに触れない",
-                            "HookHackを外す", "HookHackは外す", "中立記事", "中立モード",
+                            "HookHackを外す", "HookHackは外す",
+                            "LPHack書かない", "LPHackを書かない", "LPHackは書かない",
+                            "LPHackなし", "LPHack 抜き", "LPHack抜き", "LPHackに触れない", "LPHackを外す",
+                            "中立記事", "中立モード",
                             "弊社言及なし", "自社言及なし", "弊社の話なし", "自社の話なし",
+                            "ブランド誘導なし", "サービス誘導なし",
                         ]
                         _inclusive_kw = [
                             "HookHack入れて", "HookHackを入れて", "HookHack含めて",
-                            "HookHack要素を入れて", "自社実践を入れて", "自社実践コーナーを入れて",
-                            "自社実践コーナーを加えて", "自社事例を入れて", "HookHack話を強める",
+                            "HookHack要素を入れて", "HookHack話を強める",
+                            "LPHack入れて", "LPHackを入れて", "LPHack含めて",
+                            "自社実践を入れて", "自社実践コーナーを入れて",
+                            "自社実践コーナーを加えて", "自社事例を入れて",
+                            "連動運用を入れて", "動画×LPを入れて",
                         ]
                         _effective_disable_hookhack = disable_hookhack
                         _auto_toggle_msg = None
                         if any(kw in refine_feedback for kw in _neutral_kw):
                             _effective_disable_hookhack = True
                             if not disable_hookhack:
-                                _auto_toggle_msg = "🚫 指示から中立記事モードを自動ON（HookHack言及を全削除）"
+                                _auto_toggle_msg = "🚫 指示から中立記事モードを自動ON（HookHack/LPHack言及を全削除）"
                         elif any(kw in refine_feedback for kw in _inclusive_kw):
                             _effective_disable_hookhack = False
                             if disable_hookhack:
-                                _auto_toggle_msg = "✅ 指示からHookHack言及モードを自動ON"
+                                _auto_toggle_msg = "✅ 指示からHookHack/LPHack言及モードを自動ON"
 
                         with st.spinner("Geminiが章立てを作り直しています...（30〜60秒）"):
                             try:
