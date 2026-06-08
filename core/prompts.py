@@ -1123,6 +1123,32 @@ JSONのみ出力。前置き・後書き・コードフェンスは禁止。
 """
 
 
+def _parse_memo_bullets(memo: str) -> list[str]:
+    """章立てメモから実質的な bullet を抽出してリスト化する。
+    モデルにメモを「選択肢の羅列」ではなく「番号付きの必須項目」として渡すための前処理。
+    - 「推定字数: N字」「内容メモ:」のようなメタ行はスキップ
+    - 「- 」「  - 」「・」「* 」「1. 」等の bullet マーカーを剥がす
+    - 入れ子も flat に拾う（モデルはネスト構造より平坦な番号リストの方が漏れない）"""
+    import re as _re_memo
+    items: list[str] = []
+    for raw in (memo or "").split("\n"):
+        line = raw.strip()
+        if not line:
+            continue
+        cleaned = _re_memo.sub(r"^[-*・]\s*", "", line)
+        cleaned = _re_memo.sub(r"^\d+\.\s*", "", cleaned)
+        cleaned = cleaned.strip()
+        if not cleaned:
+            continue
+        # メタ行スキップ
+        if cleaned in ("内容メモ:", "内容メモ：", "内容メモ", "メモ:", "メモ：", "メモ"):
+            continue
+        if _re_memo.match(r"^推定字数[：:]", cleaned):
+            continue
+        items.append(cleaned)
+    return items
+
+
 def section_prompt(
     topic: str,
     outline_md: str,
@@ -1141,6 +1167,33 @@ def section_prompt(
     current_content: str = "",
     disable_hookhack: bool = False,
 ) -> str:
+    # メモを bullet 単位に分解して番号付きで提示する。
+    # まとめ章・CTA章は事例引用しないため「事例:」項目を除外（旧 outline 由来でも矛盾しないよう）。
+    _memo_items_all = _parse_memo_bullets(section_memo)
+    if is_summary or is_cta:
+        import re as _re_filt
+        _memo_items = [
+            it for it in _memo_items_all
+            if not _re_filt.match(r"^(事例|社名|数字)[:：]", it)
+        ]
+    else:
+        _memo_items = _memo_items_all
+
+    if _memo_items:
+        _items_block = "\n".join(f"{i + 1}. {item}" for i, item in enumerate(_memo_items))
+        _memo_count = len(_memo_items)
+        _memo_header = (
+            f"## このセクションで必ず書くこと（章立てメモ・全 {_memo_count} 項目、1つも落とせない）\n"
+            f"{_items_block}\n"
+        )
+        _memo_count_label = f"1〜{_memo_count}"
+    else:
+        _memo_count = 0
+        _memo_header = (
+            f"## このセクションで必ず書くこと（章立てメモ）\n"
+            f"{section_memo}\n"
+        )
+        _memo_count_label = "全項目"
     written_block = ""
     if written_sections:
         written_block = "\n\n## 既に書いた他セクションの抜粋（重複回避用、内容は引用しない）\n"
@@ -1242,16 +1295,13 @@ def section_prompt(
 ## 目標字数
 {target_chars}字前後（前後20%まで許容）
 
-## このセクションで必ず書くこと（章立てメモ・全項目カバー必須）
-{section_memo}
-
+{_memo_header}
 **メモの扱いルール（最重要）**:
-- 上記メモの **bullet 1つ1つを「必須カバー項目」として扱う**（「選択肢」「参考」ではない）
-- メモにある「事例: 〜」→ その事例を本文に必ず盛り込む（cases.csv に該当社名が無ければ理論深掘りに振る）
-- メモにある「示唆: 〜」→ その示唆を本文で必ず展開する
-- メモにある「書く要点」「実装手順」「ポイント」「メカニズム」→ 該当箇所として本文に書く
-- **メモの項目を1つでも落としたら『要旨未反映』扱いで失敗**。本文を出す前にメモの bullet を1個ずつ照合して、全部反映されているか自己確認する
-- メモにない論点を勝手に膨らませて本文を埋めない（メモを軸に組み立てる）
+- 上記メモは **番号付き必須カバー項目** であり、「選択肢」「参考」ではない
+- 番号「1.」「2.」… **各項目に対応する内容を本文中に必ず書く**（事例/示唆/書く要点/実装手順/メカニズム など、項目の性質に応じて該当箇所として組み込む）
+- 事例: 〜 → 該当事例を本文に盛り込む（cases.csv に該当社名が無ければ理論深掘りに振る、ただし「項目は触れた」扱いにする）
+- **項目を1つでも落としたら『要旨未反映』扱いで失敗**。本文を出す前に上の番号リストを1個ずつ指差し確認して、全部反映されているかチェックする
+- メモにない論点を勝手に膨らませて本文を埋めない（番号リストを軸に組み立てる）
 {role_hint}
 
 ## 全体の章立て（参考）
@@ -1291,7 +1341,7 @@ def section_prompt(
   事例の社名・数字は本文中で言及してOKだが、**ソース表記は記事末尾の「参考文献」セクションに一括掲載される**ため、本文には含めないこと
 
 ## 出力前の自己チェック（最終ゲート、必ず実行）
-1. **メモ全項目反映チェック**: 上の「## このセクションで必ず書くこと」の bullet を1つ1つ照合。未反映があれば本文に追加してから出す
+1. **メモ全項目反映チェック**: 上の「## このセクションで必ず書くこと」の **番号 {_memo_count_label} を1つずつ** 本文と照合する。未反映があれば該当箇所を本文に追加してから出す
 2. **目標字数チェック**: {target_chars}字前後（前後20%）に収まっているか
 3. **AIっぽさチェック**: 「**太字**」濫用 / テーブル記法 / 過剰な箇条書き が無いか
 {revision_block}
