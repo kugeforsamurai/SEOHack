@@ -1231,14 +1231,23 @@ elif current_stage == "converge":
             st.markdown("**🧭 自分の方針メモ（任意 / ③企画以降の全ステージに反映）**")
             st.caption(
                 "この軸で記事を組むときの **追加方針** をここに書いてください。"
-                "例: 「もっと若手社員視点で」「失敗事例を多めに」「自社実践コーナーをCRM領域に寄せたい」など。"
                 "Geminiが角度（angle.md）に織り込み、章立て・本文・X投稿のトーンにも反映されます。"
+            )
+            st.info(
+                "📌 **軸候補#N を直接参照できます**\n\n"
+                "上に並んだ軸候補（#1, #2, #3, ...）を参照する形で指示すると、"
+                "後段のプロンプトが軸候補リストを見て指示を解釈します。\n\n"
+                "**指示の書き方例**:\n"
+                "- 「#1 を選ぶけど、グループ3 は削って」\n"
+                "- 「#1 の作用機序の話を入れつつ、#3 の3ステップ構成で組み立てて」\n"
+                "- 「#1 と #2 の折衷案で。#1 のグループA + #2 の課題1〜2を組み合わせる」\n"
+                "- 「もっと若手社員視点で」「失敗事例を多めに」など軸を参照しない指示も可"
             )
             user_direction = st.text_area(
                 "自分の方針メモ",
                 value=state.get("user_direction", ""),
-                placeholder="例: 動画PoCの判断材料を、CFOが投資判断に使えるレベルの数字で示したい",
-                height=110,
+                placeholder="例: 「#1 の作用機序を軸に、#3 の3ステップ構成で組み立てて。グループ4(応用)は削って」",
+                height=140,
                 key="_user_direction_input",
                 label_visibility="collapsed",
             )
@@ -1270,6 +1279,7 @@ elif current_stage == "converge":
                                     topic, df.to_csv(index=False), chosen,
                                     angle_hint=angle_hint, interests_hint=interests_hint,
                                     user_direction=user_direction,
+                                    axes_candidates=axes,
                                 )
                             )
                             angle_md = persona.sanitize_emoji(angle_md)
@@ -1341,6 +1351,7 @@ elif current_stage == "outline":
                                 angle_hint=angle_hint, interests_hint=interests_hint, user_direction=user_direction,
                                 hookhack_goal=hookhack_goal,
                                 disable_hookhack=disable_hookhack,
+                                axes_candidates=storage.load_axes(work_date),
                             )
                         )
                         outline_md = persona.sanitize_emoji(outline_md)
@@ -1442,6 +1453,7 @@ elif current_stage == "outline":
                                         angle_hint=angle_hint, interests_hint=interests_hint, user_direction=user_direction,
                                         hookhack_goal=hookhack_goal,
                                         disable_hookhack=_effective_disable_hookhack,
+                                        axes_candidates=storage.load_axes(work_date),
                                     )
                                 )
                                 new_outline = persona.sanitize_emoji(new_outline)
