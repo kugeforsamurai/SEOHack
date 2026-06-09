@@ -308,6 +308,19 @@ def angle_prompt(
     topic: str, cases_csv: str, chosen_axis: dict,
     angle_hint: str = "", interests_hint: str = "", user_direction: str = "",
 ) -> str:
+    # assignments を読みやすく整形（row → group の対応表）
+    _assignments = chosen_axis.get("assignments") or {}
+    if isinstance(_assignments, dict) and _assignments:
+        _asn_lines = "\n".join(
+            f"  - row {row} → {group}"
+            for row, group in sorted(_assignments.items(), key=lambda kv: int(kv[0]) if str(kv[0]).isdigit() else 999)
+        )
+        _assignments_block = f"\n事例の振り分け（cases.csv の row → グループ）:\n{_asn_lines}"
+    else:
+        _assignments_block = ""
+
+    _topic_alignment = chosen_axis.get("topic_alignment", "") or ""
+
     return f"""\
 {HOOKHACK_STRATEGY}
 
@@ -315,15 +328,17 @@ def angle_prompt(
 {_topic_context_block(angle_hint, interests_hint, user_direction)}
 ## タスク
 選ばれた軸で事例を整理し、記事の「角度（angle）」を確定させる。
+**選ばれた軸の `お題への沿い方（topic_alignment）` を記事の核に据える** — この軸が答えるべき「お題の暗黙の問い」を中核メッセージで明示すること。
 
 ## お題
 {topic}
 
 ## 選ばれた軸
 名前: {chosen_axis.get('name')}
-説明: {chosen_axis.get('description')}
-グループ: {chosen_axis.get('groups')}
-HookHack着地: {chosen_axis.get('hookhack_angle')}
+**お題への沿い方（軸が答える暗黙の問い、最重要）**: {_topic_alignment}
+束ね方の説明: {chosen_axis.get('description')}
+グループ（H2候補）: {chosen_axis.get('groups')}
+HookHack/LPHack着地: {chosen_axis.get('hookhack_angle')}{_assignments_block}
 
 ## 事例群（CSV）
 {cases_csv}
@@ -332,20 +347,23 @@ HookHack着地: {chosen_axis.get('hookhack_angle')}
 ```
 # 記事の角度
 
+## この軸が答えるお題の問い（軸選択時に決めた topic_alignment）
+{{選ばれた軸の topic_alignment をそのまま転記または1〜2行で要約。後段のoutline/本文生成でこの問いを軸にする}}
+
 ## 中核メッセージ（1文）
-{{この記事で最も伝える価値がある主張を1文で}}
+{{上の「問い」への答えとして、この記事で最も伝える価値がある主張を1文で}}
 
 ## 対象読者
 {{誰がこの記事を読むと得をするか}}
 
-## 主要インサイト（3〜5個）
-### インサイト1: {{見出し}}
-- 発見: {{2-3行}}
-- 根拠事例: {{cases.csvのどの事例で支えるか、社名で列挙}}
+## 主要インサイト（3〜5個、グループ＝H2候補に対応させる）
+### インサイト1: {{グループ名に対応}}
+- 発見: {{2-3行、上の「問い」への部分回答}}
+- 根拠事例: {{このグループに割り当てられた cases.csv の row／社名を列挙、上の振り分け表を参照}}
 - 読者アクション: {{次に取る具体action、1〜2個。「明日からできる」のような決まり文句は避けて多様な表現で}}
 
 ### インサイト2: ...
-（3〜5個）
+（3〜5個、グループ分け数に揃える）
 
 ## 成果差分が出るポイント（予想）
 - {{ポイント1: どこで差がつくか、なぜそう思うか}}
@@ -457,6 +475,12 @@ def outline_prompt(
 
 ## 角度
 {angle_md}
+
+**角度の最重要要素**: 上の「## この軸が答えるお題の問い」（②収束で決めた topic_alignment）を **記事全体の通底テーマ** として扱う。
+- リード方向性の第1段「パターン提示」は、この問いに対する典型的な選択肢として並べる
+- H2の論点配列は、この問いに対する **段階的な答え** になるよう順番を組む
+- まとめ章では、この問いへの **総合的な答え** を再掲する
+- 軸選択時にユーザーが意識した「お題のどの問いに答えるか」を骨格から外さない
 {cases_block}
 ## 出力仕様
 - H1: タイトル案を3つ（フックが違うもの）
