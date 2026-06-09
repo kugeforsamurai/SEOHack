@@ -1959,17 +1959,17 @@ elif current_stage == "write":
                 st.session_state["blog_lead"] = st.session_state.pop("_pending_lead_update")
 
             lead = st.text_area(
-                "リード（200字目安）",
+                "リード（300〜500字、3段構成: パターン→成功要因→具体化）",
                 value=saved.get("lead", ""),
-                height=100,
+                height=180,
                 key="blog_lead",
-                placeholder=lead_direction[:120] if lead_direction else "",
+                placeholder=lead_direction[:160] if lead_direction else "",
             )
             lead_gen_disabled = not title or not lead_direction
             lead_gen_help = (
                 "タイトル or ③のリード方向性が空のため生成できません"
                 if lead_gen_disabled
-                else "③で書いたリード方向性を元に120〜200字のリード文をOpenAIで生成"
+                else "③で書いたリード方向性を元に300〜500字・3段構成のリード文をOpenAIで生成"
             )
             if st.button(
                 "✨ リード文を生成",
