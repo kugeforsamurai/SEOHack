@@ -1965,11 +1965,28 @@ elif current_stage == "write":
                 key="blog_lead",
                 placeholder=lead_direction[:160] if lead_direction else "",
             )
+            # ---- リード用メモ（任意・生成時にプロンプトに反映される） ----
+            lead_memo = st.text_area(
+                "📝 リード用メモ（任意 / ここに書いた論点は『✨ リード文を生成』時に最優先で反映される）",
+                value=saved.get("lead_memo", ""),
+                height=90,
+                key="blog_lead_memo",
+                placeholder=(
+                    "例: 「『内製 vs 外注 vs ハイブリッド』の3パターンで整理して」"
+                    "／「PDCAサイクルの速さを成功要因の中心に据えて」"
+                    "／「読者が中小企業のマーケ責任者という前提で問いかけて」"
+                ),
+                help=(
+                    "ここに書いたメモはリード生成時にプロンプトの最優先入力として注入され、"
+                    "リードの3段構成に組み込まれる。空欄なら③のリード方向性のみが使われる。"
+                    "ブログを保存する際に sections.json に永続化される。"
+                ),
+            )
             lead_gen_disabled = not title or not lead_direction
             lead_gen_help = (
                 "タイトル or ③のリード方向性が空のため生成できません"
                 if lead_gen_disabled
-                else "③で書いたリード方向性を元に300〜500字・3段構成のリード文をOpenAIで生成"
+                else "③のリード方向性 + 上のメモ（任意）を元に300〜500字・3段構成のリード文をOpenAIで生成"
             )
             if st.button(
                 "✨ リード文を生成",
@@ -1985,6 +2002,7 @@ elif current_stage == "write":
                                 topic, title, lead_direction, outline,
                                 angle_hint=angle_hint, interests_hint=interests_hint, user_direction=user_direction,
                                 disable_hookhack=disable_hookhack,
+                                user_lead_memo=lead_memo,
                             )
                         )
                         new_lead = persona.sanitize_emoji(new_lead).strip()
@@ -1992,7 +2010,8 @@ elif current_stage == "write":
                             st.error("OpenAI から空の応答が返りました。モデル名・APIキーを確認してください。")
                         else:
                             storage.save_sections_file(work_date, {
-                                "title": title, "lead": new_lead, "sections": merged,
+                                "title": title, "lead": new_lead, "lead_memo": lead_memo,
+                                "sections": merged,
                             })
                             storage.snapshot_original(storage.sections_path(work_date))
                             # rerun 前に「次回ロード時に session_state へ反映」を予約する
@@ -2206,8 +2225,11 @@ elif current_stage == "write":
                             content = persona.sanitize_emoji(content)
                             _merged[i]["content"] = content
                             wd_obj = _date.fromisoformat(_work_date_str)
+                            # lead_memo を上書き消失させないため既存値を保持
+                            _existing_lead_memo = storage.load_sections_file(wd_obj).get("lead_memo", "")
                             storage.save_sections_file(wd_obj, {
-                                "title": _title, "lead": _lead, "sections": _merged,
+                                "title": _title, "lead": _lead, "lead_memo": _existing_lead_memo,
+                                "sections": _merged,
                             })
                             storage.snapshot_original(storage.sections_path(wd_obj))
                             st.session_state[f"sec_text_{i}"] = content
@@ -2514,7 +2536,8 @@ elif current_stage == "write":
         with c_save:
             if st.button("セクションを保存", width="stretch"):
                 storage.save_sections_file(work_date, {
-                    "title": title, "lead": lead, "sections": merged,
+                    "title": title, "lead": lead, "lead_memo": lead_memo,
+                    "sections": merged,
                 })
                 st.success("保存")
         with c_assemble:
@@ -2596,7 +2619,8 @@ elif current_stage == "write":
                 storage.save_blog(work_date, blog_md)
                 storage.snapshot_original(storage.blog_path(work_date))
                 storage.save_sections_file(work_date, {
-                    "title": title, "lead": lead, "sections": merged,
+                    "title": title, "lead": lead, "lead_memo": lead_memo,
+                    "sections": merged,
                 })
                 st.session_state["blog_editor"] = blog_md
                 inserted = len(hero_imgs) + sum(len(v) for v in before_imgs.values()) + sum(len(v) for v in after_imgs.values())
