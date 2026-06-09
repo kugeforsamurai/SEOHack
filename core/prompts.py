@@ -85,6 +85,48 @@ def _disable_hookhack_block(disable_hookhack: bool = False) -> str:
 """
 
 
+def _user_direction_priority_block(
+    user_direction: str = "",
+    axes_candidates: list[dict] | None = None,
+) -> str:
+    """プロンプト末尾に置く「🚨 ユーザー方針メモ最優先」リマインダ。
+    LLMは長文の末尾にある指示を優先しがち（recency bias）なので、user_direction を
+    冒頭の _topic_context_block だけに頼らず末尾でも強く繰り返す。
+    軸候補参照（#1, #2 など）を含む折衷指示にも明示的に対応するよう促す。"""
+    if not (user_direction and user_direction.strip()):
+        return ""
+    _axes_hint = ""
+    if axes_candidates:
+        _axes_hint = (
+            "\n- このメモが軸候補#Nを参照していたら（例: 「#1のグループAだけ」「#1と#3の折衷」「グループ4は削って」）、"
+            "コンテキストの『②で提示された軸候補』リストを見て該当要素を特定し、**構造に折衷的に反映**する。"
+            "選ばれた軸の構造に固執せず、メモの折衷指示を優先する。"
+        )
+    return f"""
+
+---
+
+## 🚨 最優先: ユーザーの方針メモ（これを反映しないと『未反映』扱い）
+
+冒頭のコンテキストブロックに書かれた「ユーザーの方針メモ」を、**他のどのルール**（HOOKHACK_STRATEGY / persona / role_hint / 角度の構造 / 標準テンプレ）**よりも優先**して反映する。
+
+### 方針メモ（再掲・最終確認用）
+{user_direction.strip()}
+
+### 反映のチェック手順（出力前に必ず実行）
+1. メモを具体的な変更点に分解する（「グループ削除」「折衷組み合わせ」「トーン変更」「特定論点の強調」など）
+2. 出力構造（H2配列・タイトル・本文方針）にメモが **目に見える形で反映されているか** を確認する
+3. メモの指示で言及された要素は **必ず変える**。言及されていない部分は既定構造を保ってOK
+4. 「メモを薄めて一般化」「メモを無視して既定通り」は失敗扱い{_axes_hint}
+
+**ただし以下の Safety rules はメモでも上書き不可**:
+- ハルシネーション禁止（cases.csv照合）
+- 中小企業中心
+- persona NG ワード・絵文字禁止
+- 出典リンク禁止
+"""
+
+
 def _topic_context_block(
     angle_hint: str = "", interests_hint: str = "", user_direction: str = "",
     axes_candidates: list[dict] | None = None,
@@ -411,7 +453,7 @@ HookHack/LPHack着地: {chosen_axis.get('hookhack_angle')}{_assignments_block}
 - HOOKHACK_STRATEGY のお題整合性表に従い、CTA章で何を推すか（HookHack動画 / LPHack LP / 連動運用 / 目的2 / 誘導なし）
 - 結論部分でどう自然に接続するか（1〜2行）
 ```
-
+{_user_direction_priority_block(user_direction, axes_candidates)}
 Markdown以外は出力しない。
 """
 
@@ -593,6 +635,7 @@ def outline_prompt(
 - タイトル例: 「次の一歩へ」「最初の一歩」「動画PoCで成果差を確かめる」「実装に向けて」「踏み出すための準備」「より深く取り組みたい方へ」
 - **「自社実践コーナー」はデフォルトでは作らない**（ユーザー方針メモで明示的に指示があれば追加）
 ```
+{_user_direction_priority_block(user_direction, axes_candidates)}
 """
 
 
@@ -706,7 +749,7 @@ def outline_refine_prompt(
   - **このセクションにも事例（社名・数字）を出さない**
 - タイトル例: 「次の一歩へ」「最初の一歩」「動画PoCで成果差を確かめる」「実装に向けて」「踏み出すための準備」「より深く取り組みたい方へ」
 ```
-
+{_user_direction_priority_block(user_direction, axes_candidates)}
 Markdown 以外は出力しない。コードフェンス（```）でラップしない。
 """
 
@@ -1156,6 +1199,7 @@ def lead_prompt(
 - 「リード:」「## リード」「第1段:」のような見出し・ラベルも書かない（3段は段落分けだけで表現）
 - 純粋にリード本文の3段落のみ
 - コードフェンス（```）禁止
+{_user_direction_priority_block(user_direction)}
 """
 
 
@@ -1469,6 +1513,8 @@ def section_prompt(
 1. **メモ全項目反映チェック**: 上の「## このセクションで必ず書くこと」の **番号 {_memo_count_label} を1つずつ** 本文と照合する。未反映があれば該当箇所を本文に追加してから出す
 2. **目標字数チェック**: {target_chars}字前後（前後20%）に収まっているか
 3. **AIっぽさチェック**: 「**太字**」濫用 / テーブル記法 / 過剰な箇条書き が無いか
+4. **方針メモ反映チェック**: 末尾の「🚨 最優先: ユーザーの方針メモ」が反映されているか確認
+{_user_direction_priority_block(user_direction)}
 {revision_block}
 Markdown本文のみ。前置き・後書き・コードフェンス（```）禁止。
 """
