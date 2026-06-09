@@ -1671,6 +1671,89 @@ elif current_stage == "outline":
                             "⚠️ 具体例チェック: 数字あり / **事例社名が cases.csv と一致しない** — "
                             "ハルシネーション疑い。社名を cases.csv の表記に揃える or 数字の出所を明確に"
                         )
+                        col_regen_memo, col_add_cases = st.columns(2)
+                        with col_regen_memo:
+                            if st.button(
+                                "🔁 このH2のメモを再生成",
+                                key=f"regen_memo_{idx}",
+                                help="現在のメモを土台に、cases.csv 整合の新メモへ作り直す（社名が一致するものに置換 or 理論深掘りへ）",
+                                width="stretch",
+                            ):
+                                with st.spinner("Gemini がメモを作り直しています..."):
+                                    try:
+                                        _cases_csv = cases_df.to_csv(index=False) if not cases_df.empty else ""
+                                        _other_secs = [
+                                            (s.get("title", ""), s.get("memo", ""))
+                                            for j, s in enumerate(sections) if j != idx
+                                        ]
+                                        new_memo = gemini_client.generate_text(
+                                            prompts.section_memo_regen_prompt(
+                                                topic=topic,
+                                                section_title=sec_title,
+                                                current_memo=sec_memo,
+                                                cases_csv=_cases_csv,
+                                                other_sections=_other_secs,
+                                                target_chars=int(target),
+                                                angle_hint=angle_hint, interests_hint=interests_hint,
+                                                user_direction=user_direction,
+                                                hookhack_goal=hookhack_goal,
+                                                disable_hookhack=disable_hookhack,
+                                                axes_candidates=storage.load_axes(work_date),
+                                            )
+                                        )
+                                        new_memo = persona.sanitize_emoji(new_memo).strip()
+                                        # outline.md を再構成して保存
+                                        _current_struct = outline_parser.parse_full(outline_md)
+                                        for _s in _current_struct.get("sections", []):
+                                            if _s.get("id") == sec.get("id"):
+                                                _s["memo"] = new_memo
+                                                break
+                                        new_md = outline_parser.serialize_full(_current_struct)
+                                        storage.save_outline(work_date, new_md)
+                                        # widget state を消してファイルから再ロード
+                                        for k in list(st.session_state.keys()):
+                                            if k.startswith("out_sec_"):
+                                                del st.session_state[k]
+                                        _invalidate_write_stage_widgets()
+                                        st.toast(f"「{sec_title}」のメモを再生成しました", icon="✅")
+                                        st.rerun()
+                                    except Exception as _e:
+                                        st.error(f"再生成エラー: {_e}")
+                        with col_add_cases:
+                            if st.button(
+                                "🔍 事例を追加リサーチ",
+                                key=f"add_cases_{idx}",
+                                help="このH2にフォーカスした追加事例をGeminiでリサーチ → cases.csv に追記",
+                                width="stretch",
+                            ):
+                                with st.spinner("Gemini が追加事例をリサーチしています..."):
+                                    try:
+                                        _existing_csv = cases_df.to_csv(index=False) if not cases_df.empty else ""
+                                        _new_cases = gemini_client.generate_json(
+                                            prompts.cases_supplement_prompt(
+                                                topic=topic,
+                                                h2_title=sec_title,
+                                                h2_memo=sec_memo,
+                                                existing_cases_csv=_existing_csv,
+                                                n_cases=4,
+                                                angle_hint=angle_hint, interests_hint=interests_hint,
+                                                user_direction=user_direction,
+                                            )
+                                        )
+                                        if not isinstance(_new_cases, list) or not _new_cases:
+                                            st.error("追加事例の取得に失敗（空 or 想定外フォーマット）")
+                                        else:
+                                            import pandas as _pd_supp
+                                            _new_df = _pd_supp.DataFrame(_new_cases)
+                                            if cases_df.empty:
+                                                _merged_df = _new_df
+                                            else:
+                                                _merged_df = _pd_supp.concat([cases_df, _new_df], ignore_index=True)
+                                            storage.save_cases(work_date, _merged_df)
+                                            st.toast(f"事例を {len(_new_df)} 件追加（合計 {len(_merged_df)} 件）", icon="✅")
+                                            st.rerun()
+                                    except Exception as _e:
+                                        st.error(f"事例リサーチエラー: {_e}")
                     elif not _has_number and _case_names_in_memo:
                         st.caption(
                             f"ℹ️ 具体例チェック: 事例社名「{_case_names_in_memo[0]}」あり / 数字なし — "

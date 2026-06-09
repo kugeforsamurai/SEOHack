@@ -1203,6 +1203,127 @@ def lead_prompt(
 """
 
 
+def section_memo_regen_prompt(
+    topic: str,
+    section_title: str,
+    current_memo: str,
+    cases_csv: str,
+    other_sections: list[tuple[str, str]] | None = None,
+    target_chars: int = 500,
+    angle_hint: str = "",
+    interests_hint: str = "",
+    user_direction: str = "",
+    hookhack_goal: str = "",
+    disable_hookhack: bool = False,
+    axes_candidates: list[dict] | None = None,
+) -> str:
+    """③企画段階で1つの H2 セクションの内容メモだけを再生成。
+    具体例チェックで⚠️が出たとき（cases.csv に無い社名+数字が混入）に、
+    現メモを土台にして cases.csv 整合の新メモへ作り直す用途。"""
+    other_block = ""
+    if other_sections:
+        _items = [f"### {t}\n{(m or '').strip()[:500]}" for t, m in other_sections[:6]]
+        other_block = "\n\n## 他の H2 セクション（重複回避用、内容は引用しない）\n" + "\n\n".join(_items) + "\n"
+    return f"""\
+{HOOKHACK_STRATEGY}
+
+{persona.blog_block()}
+{_topic_context_block(angle_hint, interests_hint, user_direction, axes_candidates=axes_candidates)}{_hookhack_goal_block(hookhack_goal)}{_disable_hookhack_block(disable_hookhack)}
+## タスク
+**1つの H2 セクションの「内容メモ」だけ** を再生成する。
+現在のメモには「cases.csv に無い社名+数字の組み合わせ（ハルシネーション疑い）」「事例と論点のミスマッチ」のいずれかがある可能性が高い。
+cases.csv にある事例を引用するか、該当事例が無ければ理論深掘り型のメモに作り直す。
+
+## お題
+{topic}
+
+## このH2のタイトル
+{section_title}
+
+## このH2の目標字数（参考）
+{target_chars}字
+
+## 現在のメモ（土台、ここから修正する）
+{current_memo}
+
+## ①発散で集めた事例群（CSV、この中の社名・数字のみ引用可）
+{cases_csv}
+{other_block}
+## 内容メモのルール（必須）
+- 最低 3〜5 項目の bullet
+- 「事例: 〇〇社が △△ で X% 改善」のように、**cases.csv の `誰が` 列に存在する社名のみ** 引用
+- cases.csv に該当事例が無ければ **社名・数字を一切出さず**、メカニズム・理論・実装手順の詳述で組み立てる
+- 中小企業中心、Nike/Sephora/HubSpot等のグローバル大手は引用しない
+- 事例引用時は業界の一言を併記（例:「地方の食品EC〇〇社が…」「BtoB SaaS〇〇社が…」）
+
+## 出力フォーマット
+**内容メモの bullet のみ** をMarkdownで出力。
+- 「## メモ」のような見出しは付けない
+- 「- 推定字数: ...」の行は書かない（推定字数は外側で管理）
+- 「- 事例: ...」「- 示唆: ...」「- 書く要点: ...」「- 実装手順: ...」のような形で1行=1ポイント
+- インデント・ネストは使わず、全て同じレベルの bullet にする
+{_user_direction_priority_block(user_direction, axes_candidates)}
+コードフェンス（```）禁止。前置き・後書き禁止。bullet 本体のみ。
+"""
+
+
+def cases_supplement_prompt(
+    topic: str,
+    h2_title: str,
+    h2_memo: str,
+    existing_cases_csv: str,
+    n_cases: int = 4,
+    angle_hint: str = "",
+    interests_hint: str = "",
+    user_direction: str = "",
+) -> str:
+    """既存 cases.csv に追加するための、特定 H2 にフォーカスした事例リサーチ。
+    具体例チェックで⚠️が出て、既存事例だけでは H2 の論点を支えられないときに、
+    追加の事例を集めて cases.csv に append する用途。"""
+    return f"""\
+{HOOKHACK_STRATEGY}
+
+{persona.blog_block()}
+{_topic_context_block(angle_hint, interests_hint, user_direction)}
+## タスク
+H2 セクション「{h2_title}」の論点に対応する **追加事例** を {n_cases} 件リサーチする。
+既存の cases.csv にある事例と重複しないものに絞る（社名・施策が同じものは除外）。
+
+## お題
+{topic}
+
+## H2 タイトル
+{h2_title}
+
+## H2 の内容メモ（このメモの「事例:」項目の裏付けになる事例を集める）
+{h2_memo}
+
+## 既存の cases.csv（重複回避用、ここにある社名・施策は出さない）
+{existing_cases_csv}
+
+## 事例選定基準
+- 上の H2 論点に **直結する** 事例（外れたら除外）
+- **中小企業中心**（年商1〜100億円規模、従業員30〜500人規模、スタートアップ含む）
+- Nike/Sephora/HubSpot/Adobe/Salesforce/Apple/Google/Amazon 等のグローバル大手は出さない
+- 数字（%・倍・件数）を含むこと。出典が明確なものだけ。曖昧なら「出典不明」と書く
+- 既存 cases.csv にない社名・施策に限る
+- 日本国内 SMB 主軸（60〜70%）、残りを海外 SMB・スタートアップで補う
+
+## 出力フォーマット
+JSON配列で {n_cases} 件返す。各要素のキー：
+- "誰が": 企業/組織名
+- "何を": 施策内容（80字以内）
+- "どう測ったか": 計測指標（CTR / CVR / ROAS など）
+- "結果_数字": 具体数値（〇〇%改善、X倍など）
+- "出典URL": URL or 「出典不明」
+- "示唆": HookHack/LPHack 視点での気付き（60字以内）
+- "国_地域": 国名または地域名
+- "情報源言語": "英語" or "日本語" or "その他"
+
+JSON以外は一切出力しないこと。前置き・コードフェンス禁止。
+"""
+
+
 def consistency_review_prompt(
     topic: str,
     angle_md: str,
