@@ -1763,11 +1763,17 @@ elif current_stage == "outline":
                     storage.mark_stage(work_date, "outline", True)
                     goto("review")
 
-            # ---- Markdown プレビュー ----
-            with st.expander("Markdown プレビュー（自動生成）"):
-                preview_md = outline_parser.serialize_full(new_struct)
+            # ---- 📋 まとめてコピー（タイトル候補 + リード方向性 + H2構成） ----
+            st.divider()
+            st.subheader("📋 まとめてコピー")
+            st.caption(
+                "現在の編集内容（タイトル候補 / リード方向性 / H2 セクション）を一括で確認・コピーできます。"
+                "下のコードボックス右上のコピーアイコンでクリップボードに転送。"
+            )
+            preview_md = outline_parser.serialize_full(new_struct)
+            st.code(preview_md, language="markdown")
+            with st.expander("プレビュー表示（整形済み）", expanded=False):
                 st.markdown(preview_md)
-                st.code(preview_md, language="markdown")
 
 
 # ============================================================
