@@ -1604,6 +1604,19 @@ elif current_stage == "outline":
 
                 is_movable = sid not in FIXED_IDS
 
+                # ---- 再生成後の widget 同期: _pending_out_sec_* を widget key に転送 ----
+                # widget が render される前に session_state にセットすると、widget は新値を表示する
+                for _suffix in ("title", "target", "memo"):
+                    _pkey = f"_pending_out_sec_{_suffix}_{idx}"
+                    _wkey = f"out_sec_{_suffix}_{idx}"
+                    if _pkey in st.session_state:
+                        st.session_state[_wkey] = st.session_state.pop(_pkey)
+                # フィードバック text_area は再生成後に空に戻したい
+                _pfb = f"_pending_clear_feedback_{idx}"
+                if _pfb in st.session_state:
+                    st.session_state[f"out_sec_feedback_{idx}"] = ""
+                    st.session_state.pop(_pfb, None)
+
                 with st.container(border=True):
                     head_l, head_r, head_up, head_down, head_d = st.columns([4, 1, 0.5, 0.5, 1])
                     with head_l:
@@ -1702,21 +1715,28 @@ elif current_stage == "outline":
                                     else:
                                         # outline.md を再構成して保存
                                         _struct_refine = outline_parser.parse_full(outline_md)
+                                        _new_title_refine = _refined.get("title", "")
+                                        _new_target_refine = int(_refined.get("target_chars") or sec.get("target_chars") or 500)
+                                        _new_memo_refine = persona.sanitize_emoji(_refined.get("memo", "")).strip()
                                         for _s in _struct_refine.get("sections", []):
                                             if _s.get("id") == sec.get("id"):
-                                                _s["title"] = _refined.get("title", _s.get("title", ""))
-                                                _s["target_chars"] = int(_refined.get("target_chars") or _s.get("target_chars", 500))
-                                                _new_memo_refine = persona.sanitize_emoji(_refined.get("memo", "")).strip()
+                                                if _new_title_refine:
+                                                    _s["title"] = _new_title_refine
+                                                _s["target_chars"] = _new_target_refine
                                                 if _new_memo_refine:
                                                     _s["memo"] = _new_memo_refine
                                                 break
                                         new_md_refine = outline_parser.serialize_full(_struct_refine)
                                         storage.save_outline(work_date, new_md_refine)
-                                        for k in list(st.session_state.keys()):
-                                            if k.startswith("out_sec_"):
-                                                del st.session_state[k]
+                                        # _pending パターン: widget 描画前に session_state を新値で上書き
+                                        if _new_title_refine:
+                                            st.session_state[f"_pending_out_sec_title_{idx}"] = _new_title_refine
+                                        st.session_state[f"_pending_out_sec_target_{idx}"] = _new_target_refine
+                                        if _new_memo_refine:
+                                            st.session_state[f"_pending_out_sec_memo_{idx}"] = _new_memo_refine
+                                        st.session_state[f"_pending_clear_feedback_{idx}"] = True
                                         _invalidate_write_stage_widgets()
-                                        st.toast(f"「{_refined.get('title', '')}」を再生成しました", icon="✅")
+                                        st.toast(f"「{_new_title_refine or sec.get('title','')}」を再生成しました", icon="✅")
                                         st.rerun()
                                 except Exception as _e:
                                     st.error(f"再生成エラー: {_e}")
@@ -1792,10 +1812,9 @@ elif current_stage == "outline":
                                                 break
                                         new_md = outline_parser.serialize_full(_current_struct)
                                         storage.save_outline(work_date, new_md)
-                                        # widget state を消してファイルから再ロード
-                                        for k in list(st.session_state.keys()):
-                                            if k.startswith("out_sec_"):
-                                                del st.session_state[k]
+                                        # _pending パターンで widget を確実に新値で再描画
+                                        if new_memo:
+                                            st.session_state[f"_pending_out_sec_memo_{idx}"] = new_memo
                                         _invalidate_write_stage_widgets()
                                         st.toast(f"「{sec_title}」のメモを再生成しました", icon="✅")
                                         st.rerun()
@@ -1863,9 +1882,9 @@ elif current_stage == "outline":
                                                     break
                                             new_md = outline_parser.serialize_full(_current_struct)
                                             storage.save_outline(work_date, new_md)
-                                            for k in list(st.session_state.keys()):
-                                                if k.startswith("out_sec_"):
-                                                    del st.session_state[k]
+                                            # _pending パターンで widget を確実に新値で再描画
+                                            if new_memo:
+                                                st.session_state[f"_pending_out_sec_memo_{idx}"] = new_memo
                                             _invalidate_write_stage_widgets()
                                         st.toast(
                                             f"事例 {len(_new_df)}件追加（合計 {len(_merged_df)}件）+ メモ再生成完了",
