@@ -974,6 +974,8 @@ elif current_stage == "diverge":
                                     df[col] = ""
                             storage.save_cases(work_date, df)
                             storage.snapshot_original(storage.cases_path(work_date))
+                            # 古い data_editor の state を消してファイルから再ロードさせる
+                            st.session_state.pop("cases_editor", None)
                             st.success(f"{len(df)} 件生成しました")
                             st.rerun()
                     except Exception as e:
@@ -1031,6 +1033,8 @@ elif current_stage == "converge":
                     )
                     storage.save_axes(work_date, axes)
                     storage.snapshot_original(storage.axes_path(work_date))
+                    # 新しい軸候補に対して axis_choice をリセット
+                    st.session_state.pop("axis_choice", None)
                     st.success(f"軸 {len(axes)} 個提案")
                     st.rerun()
                 except Exception as e:
@@ -1067,6 +1071,9 @@ elif current_stage == "converge":
                                 )
                                 storage.save_axes(work_date, new_axes)
                                 storage.snapshot_original(storage.axes_path(work_date))
+                                # 軸候補が刷新されたので axis_choice / 再考フィードバックをリセット
+                                st.session_state.pop("axis_choice", None)
+                                st.session_state.pop("axes_refine_feedback_all", None)
                                 st.success(f"軸 {len(new_axes)} 個を再生成しました")
                                 st.rerun()
                             except Exception as e:
@@ -1133,6 +1140,9 @@ elif current_stage == "converge":
                                 axes[chosen_idx] = new_axis
                                 storage.save_axes(work_date, axes)
                                 storage.snapshot_original(storage.axes_path(work_date))
+                                # 再考フィードバック text_area / 編集中description などをリセット
+                                st.session_state.pop(f"axis_refine_feedback_{chosen_idx}", None)
+                                st.session_state.pop(f"axis_desc_editor_{chosen_idx}", None)
                                 st.success("軸を再生成しました")
                                 st.rerun()
                             except Exception as e:
@@ -2027,6 +2037,15 @@ elif current_stage == "review":
                         )
                         storage.save_review(work_date, review)
                         storage.snapshot_original(storage.review_path(work_date))
+                        # _pending パターンで新 review の各重点セクションを widget に確実反映
+                        for _k in list(st.session_state.keys()):
+                            if _k.startswith("ks_id_") or _k.startswith("ks_title_") or _k.startswith("ks_why_") or _k.startswith("ks_advice_"):
+                                del st.session_state[_k]
+                        for _i, _ks in enumerate(review.get("key_sections", [])):
+                            st.session_state[f"_pending_ks_id_{_i}"] = _ks.get("section_id", "")
+                            st.session_state[f"_pending_ks_title_{_i}"] = _ks.get("title", "")
+                            st.session_state[f"_pending_ks_why_{_i}"] = _ks.get("why_important", "")
+                            st.session_state[f"_pending_ks_advice_{_i}"] = _ks.get("writing_advice", "")
                         st.success(f"提案完了: 重点{len(review.get('key_sections', []))}件 / 画像{len(review.get('images', []))}件")
                         st.rerun()
                     except Exception as e:
@@ -2046,6 +2065,12 @@ elif current_stage == "review":
         edited_key_sections: list[dict] = []
         delete_ks_idx = None
         for i, ks in enumerate(key_sections):
+            # widget render 前に _pending_ks_* を実際の widget key に転送
+            for _suffix in ("id", "title", "why", "advice"):
+                _pkey_ks = f"_pending_ks_{_suffix}_{i}"
+                _wkey_ks = f"ks_{_suffix}_{i}"
+                if _pkey_ks in st.session_state:
+                    st.session_state[_wkey_ks] = st.session_state.pop(_pkey_ks)
             with st.container(border=True):
                 head_l, head_d = st.columns([5, 1])
                 with head_l:
