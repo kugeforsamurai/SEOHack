@@ -1385,21 +1385,29 @@ elif current_stage == "outline":
                 elif _status == "error":
                     st.error(f"❌ 前回の再考 [{_ts}]: {_msg}")
 
-            with st.expander("🔁 章立て全体を再考（Geminiに指示）", expanded=False):
+            with st.expander("📋 橋本さんのフィードバックを反映（章立て再考）", expanded=True):
+                st.markdown("**ワークフロー**: ① コピー → ② 橋本さんに見せる → ③ フィードバックを貼る → ④ 反映")
+                st.markdown("**Step 1**: 現在の章立てをコピー（右上のコピーアイコン）して橋本さんに見せる")
+                st.code(outline_md, language="markdown")
+                st.markdown("**Step 2 & 3**: 橋本さんからのフィードバックを下に貼り付ける")
                 st.caption(
-                    "「タイトルをもっとキャッチーに」「H2の順序を入れ替えて」「全体像が掴みやすいリードに」など、"
-                    "自然言語で指示するとGeminiが現在の章立てを土台に作り直します。"
-                    "H1タイトル候補・リード方向性・H2構成・内容メモすべてが対象。"
+                    "Geminiが現在の章立てを土台にして、フィードバックを反映した版へ作り直します。"
+                    "H1タイトル候補・リード方向性・H2構成・内容メモ すべて対象。"
+                    "指示が部分的（例: 「H2_3 だけ作り直し」）でも、他の部分は基本そのまま保持されます。"
                 )
                 refine_feedback = st.text_area(
-                    "再考指示",
+                    "橋本さんからのフィードバック（自然言語そのまま貼り付けOK）",
                     placeholder=(
-                        "例: H2の1〜3個目を統合してもう少し動画CPAのメカニズム寄りに。"
-                        "タイトル候補は「比較」より「メカニズム解明」のフックで作り直して。"
+                        "例（橋本さん風）:\n"
+                        "・H2_1とH2_2を統合してメカニズム寄りに\n"
+                        "・タイトル候補は「比較」より「解明」フックで\n"
+                        "・H2_4の内容メモに 視聴維持率のシグナル設計の話を追加\n"
+                        "・リードは中小企業のマーケ責任者向けに具体的な問いかけで\n"
+                        "・まとめは打ち手3つではなく、判断軸3つで再構成"
                     ),
-                    height=120,
+                    height=180,
                     key="outline_refine_feedback",
-                    label_visibility="collapsed",
+                    label_visibility="visible",
                 )
                 if st.button(
                     "この指示で章立てを作り直す",
