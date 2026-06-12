@@ -1512,6 +1512,18 @@ elif current_stage == "outline":
                                     for k in list(st.session_state.keys()):
                                         if k.startswith("out_"):
                                             del st.session_state[k]
+                                    # _pending パターンで widget を確実に新値で再描画
+                                    _new_struct = outline_parser.parse_full(new_outline)
+                                    _new_titles = _new_struct.get("title_candidates", [])
+                                    for _ti, _tt in enumerate(_new_titles[:5]):
+                                        st.session_state[f"_pending_out_title_{_ti}"] = _tt
+                                    st.session_state["_pending_out_lead"] = _new_struct.get("lead_direction", "")
+                                    for _si, _ss in enumerate(_new_struct.get("sections", [])):
+                                        st.session_state[f"_pending_out_sec_title_{_si}"] = _ss.get("title", "")
+                                        st.session_state[f"_pending_out_sec_target_{_si}"] = int(_ss.get("target_chars") or 500)
+                                        st.session_state[f"_pending_out_sec_memo_{_si}"] = _ss.get("memo", "")
+                                    # フィードバック text_area も空に戻す
+                                    st.session_state.pop("outline_refine_feedback", None)
                                     # ⑤執筆の widget state も無効化
                                     _invalidate_write_stage_widgets()
                                     _msg = f"章立てを再生成（{len(new_outline)}字）"
@@ -1544,6 +1556,10 @@ elif current_stage == "outline":
                 titles.append("")
             edited_titles: list[str] = []
             for i, t in enumerate(titles[:5]):
+                # widget render 前に _pending_out_title_{i} を実 widget key に転送
+                _pkey_t = f"_pending_out_title_{i}"
+                if _pkey_t in st.session_state:
+                    st.session_state[f"out_title_{i}"] = st.session_state.pop(_pkey_t)
                 v = st.text_input(
                     f"案 {i+1}",
                     value=t,
@@ -1556,6 +1572,9 @@ elif current_stage == "outline":
             st.divider()
             st.subheader("リード文の方向性")
             st.caption("200字前後。問題提起 → この記事で得られるもの。")
+            # widget render 前に _pending_out_lead を実 widget key に転送
+            if "_pending_out_lead" in st.session_state:
+                st.session_state["out_lead"] = st.session_state.pop("_pending_out_lead")
             edited_lead = st.text_area(
                 "リード（編集可）",
                 value=structured.get("lead_direction", ""),
