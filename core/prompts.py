@@ -1203,6 +1203,100 @@ def lead_prompt(
 """
 
 
+def section_refine_prompt(
+    topic: str,
+    current_section: dict,
+    user_feedback: str,
+    cases_csv: str = "",
+    other_sections: list[tuple[str, str]] | None = None,
+    angle_hint: str = "",
+    interests_hint: str = "",
+    user_direction: str = "",
+    hookhack_goal: str = "",
+    disable_hookhack: bool = False,
+    axes_candidates: list[dict] | None = None,
+) -> str:
+    """1つのH2セクション（title / memo / target_chars）を、ユーザー(橋本さん等)の
+    フィードバックを反映して作り直す。出力はJSON: {title, target_chars, memo}"""
+    other_block = ""
+    if other_sections:
+        _items = [f"### {t}\n{(m or '').strip()[:400]}" for t, m in other_sections[:6]]
+        other_block = "\n\n## 他の H2 セクション（重複回避用、内容は引用しない）\n" + "\n\n".join(_items) + "\n"
+
+    _cur_title = current_section.get("title", "")
+    _cur_target = int(current_section.get("target_chars", 500) or 500)
+    _cur_memo = current_section.get("memo", "")
+    _sid = current_section.get("id", "")
+
+    # ロール別の制約
+    _role_constraint = ""
+    if _sid == "summary":
+        _role_constraint = (
+            "\n- このH2は **まとめ章**: 純粋集約・事例なし・HookHack/LPHack 言及なし"
+            "\n- タイトルは「まとめ」「総括」「結論」「ラップアップ」のいずれかを含む"
+        )
+    elif _sid == "cta":
+        _role_constraint = (
+            "\n- このH2は **CTA章**: 次の一歩誘導・事例なし"
+            "\n- タイトルは「CTA」「誘導」「お問い合わせ」のような事務語を使わず、内容反映の自然な見出し"
+        )
+    elif _sid == "self_practice":
+        _role_constraint = "\n- このH2は **HookHack/LPHack 自社実践コーナー**"
+
+    return f"""\
+{HOOKHACK_STRATEGY}
+
+{persona.blog_block()}
+{_topic_context_block(angle_hint, interests_hint, user_direction, axes_candidates=axes_candidates)}{_hookhack_goal_block(hookhack_goal)}{_disable_hookhack_block(disable_hookhack)}
+## タスク
+**1つの H2 セクション（title / target_chars / memo）** を、ユーザー（橋本さん等のレビュアー）の
+フィードバックを反映して作り直す。
+
+## お題
+{topic}
+
+## このH2の現状
+- タイトル: {_cur_title}
+- 推定字数: {_cur_target}字
+- 内容メモ:
+{_cur_memo}{_role_constraint}
+
+## ユーザー（橋本さん等）からのフィードバック（最優先で反映）
+{user_feedback}
+
+## 反映ルール
+- フィードバックで言及された要素（タイトル方針 / 字数 / メモの追加・削除・修正）は **必ず変える**
+- フィードバックで言及されていない要素は **基本そのまま保持**（無理に変えない）
+- フィードバックが「タイトルだけ変えて」のように限定的なら、memo / 字数 は元のまま返す
+- フィードバックが構成全体に及ぶなら、title / memo / 字数 すべて見直す
+
+## ①発散で集めた事例群（CSV、内容メモへの具体引用に使う）
+{cases_csv}
+{other_block}
+## 内容メモのルール
+- 最低 3〜5 項目の bullet
+- 「事例: 〇〇社が △△で X% 改善」のように、**cases.csv の `誰が` 列に存在する社名のみ** 引用
+- cases.csv に該当事例が無ければ **社名・数字を一切出さず**、メカニズム・理論・実装手順の詳述で組み立てる
+- 中小企業中心、Nike/Sephora/HubSpot等のグローバル大手は引用しない
+- 事例引用時は業界の一言を併記
+
+## 出力フォーマット（JSON のみ、前後に何も書かない）
+```json
+{{
+  "title": "新しいH2タイトル（または変更しないなら元のまま）",
+  "target_chars": 500,
+  "memo": "- 事例: ...\\n- 示唆: ...\\n- 書く要点: ...\\n- 実装手順: ..."
+}}
+```
+
+- `memo` は改行区切りの bullet を1つの文字列として返す（`\\n` でつなぐ）
+- `target_chars` は整数（100〜3000）
+- title が事務語禁止（CTA章の場合）
+{_user_direction_priority_block(user_direction, axes_candidates)}
+JSON以外は一切出力しない。コードフェンス（```）は出力に含めない。
+"""
+
+
 def section_memo_regen_prompt(
     topic: str,
     section_title: str,

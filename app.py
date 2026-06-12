@@ -1647,6 +1647,80 @@ elif current_stage == "outline":
                             width="stretch",
                         )
 
+                    # ---- 📝 この章だけ橋本さんのフィードバックを反映 ----
+                    with st.expander("📝 この章だけ橋本さんのフィードバックを反映", expanded=False):
+                        st.caption(
+                            "この章（タイトル / 字数 / 内容メモ）に対するフィードバックを貼って実行すると、"
+                            "Geminiが該当部分だけを作り直します。他の章は影響を受けません。"
+                        )
+                        _sec_feedback = st.text_area(
+                            "この章へのフィードバック",
+                            placeholder=(
+                                "例: タイトルをメカニズム解明寄りに / "
+                                "メモに視聴維持率のシグナル設計の話を追加 / "
+                                "字数を800に増やしてもう少し厚く"
+                            ),
+                            height=110,
+                            key=f"out_sec_feedback_{idx}",
+                            label_visibility="collapsed",
+                        )
+                        if st.button(
+                            "🔁 この章をフィードバック反映で再生成",
+                            key=f"out_sec_refine_btn_{idx}",
+                            disabled=not _sec_feedback.strip(),
+                            width="stretch",
+                        ):
+                            with st.spinner("Geminiがこの章だけ作り直しています..."):
+                                try:
+                                    _cases_csv_refine = cases_df.to_csv(index=False) if not cases_df.empty else ""
+                                    _other_secs_refine = [
+                                        (s.get("title", ""), s.get("memo", ""))
+                                        for j, s in enumerate(sections) if j != idx
+                                    ]
+                                    _current_sec_state = {
+                                        "id": sec.get("id", ""),
+                                        "title": st.session_state.get(f"out_sec_title_{idx}", sec.get("title", "")),
+                                        "target_chars": int(st.session_state.get(f"out_sec_target_{idx}", sec.get("target_chars", 500))),
+                                        "memo": st.session_state.get(f"out_sec_memo_{idx}", sec.get("memo", "")),
+                                    }
+                                    _refined = gemini_client.generate_json(
+                                        prompts.section_refine_prompt(
+                                            topic=topic,
+                                            current_section=_current_sec_state,
+                                            user_feedback=_sec_feedback,
+                                            cases_csv=_cases_csv_refine,
+                                            other_sections=_other_secs_refine,
+                                            angle_hint=angle_hint, interests_hint=interests_hint,
+                                            user_direction=user_direction,
+                                            hookhack_goal=hookhack_goal,
+                                            disable_hookhack=disable_hookhack,
+                                            axes_candidates=storage.load_axes(work_date),
+                                        )
+                                    )
+                                    if not isinstance(_refined, dict):
+                                        st.error(f"想定外フォーマット: {_refined}")
+                                    else:
+                                        # outline.md を再構成して保存
+                                        _struct_refine = outline_parser.parse_full(outline_md)
+                                        for _s in _struct_refine.get("sections", []):
+                                            if _s.get("id") == sec.get("id"):
+                                                _s["title"] = _refined.get("title", _s.get("title", ""))
+                                                _s["target_chars"] = int(_refined.get("target_chars") or _s.get("target_chars", 500))
+                                                _new_memo_refine = persona.sanitize_emoji(_refined.get("memo", "")).strip()
+                                                if _new_memo_refine:
+                                                    _s["memo"] = _new_memo_refine
+                                                break
+                                        new_md_refine = outline_parser.serialize_full(_struct_refine)
+                                        storage.save_outline(work_date, new_md_refine)
+                                        for k in list(st.session_state.keys()):
+                                            if k.startswith("out_sec_"):
+                                                del st.session_state[k]
+                                        _invalidate_write_stage_widgets()
+                                        st.toast(f"「{_refined.get('title', '')}」を再生成しました", icon="✅")
+                                        st.rerun()
+                                except Exception as _e:
+                                    st.error(f"再生成エラー: {_e}")
+
                     sec_memo = st.text_area(
                         "内容メモ（書く要点・使う事例・実装ステップなど。1行=1ポイント）",
                         value=sec.get("memo", ""),
